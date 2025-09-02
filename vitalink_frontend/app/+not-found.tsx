@@ -4,6 +4,7 @@ import { StyleSheet } from 'react-native';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
+//no se ha trabajado esto; eventualmente se puede revisar
 export default function NotFoundScreen() {
   return (
     <>
