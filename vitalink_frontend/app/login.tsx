@@ -1,21 +1,39 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+} from "react-native";
+import { useRouter } from "expo-router"; // <-- Agrega esta importación
+import { useAuth } from "@/context/AuthContext";
 
 const LoginScreen = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const router = useRouter(); // <-- Obtén el objeto router
+  const { login } = useAuth(); 
 
-  const handleLogin = () => {
-    console.log('Inicio de sesión con:', username, password);
-    // Conexion al backend aqui, por ejemplo con fetch
-  };
+  const handleLogin = async () => {
+  try {
+    if (!email || !password) {
+      Alert.alert("Error", "Por favor ingresa un correo electrónico y una contraseña.");
+      return;
+    }
 
-  //falta definir
-  const handleSocialLogin = (provider) => {
+    await login(email, password);
+
+    router.replace("/HomeScreen");
+  } catch (error) {
+    Alert.alert("Error", "Credenciales inválidas. Inténtalo de nuevo.");
+  }
+};
+
+  const handleSocialLogin = (provider: string) => {
     console.log(`Inicio de sesión con ${provider}`);
-    // logica de auth con el proveedor (Google, Facebook, Microsoft) --> esto se puede hacer con firebase/auth
   };
 
   return (
@@ -23,21 +41,24 @@ const LoginScreen = () => {
       <View style={styles.mainRectangle}>
         <Image
           style={styles.logo}
-          source={require('../assets/images/medical_logo_placeholder.png')} //logo de la app
+          source={require("../assets/images/medical_logo_placeholder.png")}
         />
         <Text style={styles.welcomeText}>¡Bienvenido!</Text>
+
         <View style={styles.inputContainer}>
           <View style={styles.input}>
             <TextInput
-              placeholder="Nombre de usuario" //placeholder para el nombre de usuario
-              value={username}
-              onChangeText={setUsername}
+              placeholder="Correo electrónico"
+              value={email}
+              onChangeText={setEmail}
               style={styles.textInput}
+              autoCapitalize="none"
+              keyboardType="email-address"
             />
           </View>
           <View style={styles.input}>
             <TextInput
-              placeholder="Contraseña" //placeholder para la contraseña
+              placeholder="Contraseña"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -45,32 +66,48 @@ const LoginScreen = () => {
             />
           </View>
         </View>
+
         <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
           <Text style={styles.buttonText}>Iniciar Sesión</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/register')}>
-          <Text style={styles.linkText}>¿No tienes una cuenta?</Text> 
+
+        <TouchableOpacity onPress={() => router.push("/register")}>
+          <Text style={styles.linkText}>¿No tienes una cuenta?</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.registerButton} onPress={() => router.push('/register')}>
+
+        <TouchableOpacity
+          style={styles.registerButton}
+          onPress={() => router.push("/register")}
+        >
           <Text style={styles.buttonText}>Crear Cuenta</Text>
         </TouchableOpacity>
+
         <View style={styles.socialContainer}>
-          <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('Google')}>
+          <TouchableOpacity
+            style={styles.socialButton}
+            onPress={() => handleSocialLogin("Google")}
+          >
             <Image
               style={styles.socialIcon}
-              source={require('../assets/images/Google_Logo.png')}
+              source={require("../assets/images/Google_Logo.png")}
             />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('Facebook')}>
+          <TouchableOpacity
+            style={styles.socialButton}
+            onPress={() => handleSocialLogin("Facebook")}
+          >
             <Image
               style={styles.socialIcon}
-              source={require('../assets/images/Facebook_Logo.png')}
+              source={require("../assets/images/Facebook_Logo.png")}
             />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialLogin('Microsoft')}>
+          <TouchableOpacity
+            style={styles.socialButton}
+            onPress={() => handleSocialLogin("Microsoft")}
+          >
             <Image
               style={styles.socialIcon}
-              source={require('../assets/images/Microsoft_Logo.png')}
+              source={require("../assets/images/Microsoft_Logo.png")}
             />
           </TouchableOpacity>
         </View>
@@ -79,22 +116,21 @@ const LoginScreen = () => {
   );
 };
 
-//todos los estilos del screen de Login
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#007AFF',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#007AFF",
   },
   mainRectangle: {
     width: 300,
     height: 500,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 15,
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 10,
@@ -106,74 +142,74 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   welcomeText: {
-    fontFamily: 'Inter',
+    fontFamily: "Inter",
     fontSize: 20,
-    color: '#000',
+    color: "#000",
     marginBottom: 20,
   },
   inputContainer: {
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
   },
   input: {
     width: 250,
     height: 40,
-    backgroundColor: '#EEEAEA',
+    backgroundColor: "#EEEAEA",
     borderRadius: 5,
     marginBottom: 10,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 10,
   },
   textInput: {
-    fontFamily: 'Inter',
+    fontFamily: "Inter",
     fontSize: 16,
-    color: '#000',
+    color: "#000",
   },
   loginButton: {
     width: 250,
     height: 40,
-    backgroundColor: '#007AFF',
+    backgroundColor: "#007AFF",
     borderRadius: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 20,
   },
   registerButton: {
     width: 250,
     height: 40,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: "#007AFF",
     borderRadius: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 10,
   },
   buttonText: {
-    fontFamily: 'Inter',
+    fontFamily: "Inter",
     fontSize: 16,
-    color: '#000000ff',
-    textAlign: 'center',
+    color: "#000000ff",
+    textAlign: "center",
   },
   linkText: {
-    fontFamily: 'Inter',
+    fontFamily: "Inter",
     fontSize: 14,
-    color: '#000',
+    color: "#000",
     marginTop: 20,
-    textDecorationLine: 'underline',
+    textDecorationLine: "underline",
   },
   socialContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     width: 150,
     marginTop: 20,
   },
   socialButton: {
     width: 40,
     height: 40,
-    backgroundColor: '#EEEAEA',
+    backgroundColor: "#EEEAEA",
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   socialIcon: {
     width: 20,
