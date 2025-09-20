@@ -19,23 +19,18 @@ const Header = ({ nombre }: HeaderProps) => {
 
   return (
     <View style={styles.header}>
-      <View style={styles.profileSection}>
-        <Image
-          style={styles.avatar}
-          source={require("../assets/images/user_placeholder.png")}
-        />
-        <View>
-          <Text style={styles.name}>{nombre}</Text>
-          <Text style={styles.subtitle}>We are happy to see you again</Text>
-        </View>
+      <Image
+        style={styles.avatar}
+        source={require("../assets/images/user_placeholder.png")}
+      />
+      <View style={styles.textContainer}>
+        <Text style={styles.name}>{nombre}</Text>
+        <Text style={styles.subtitle}>We are happy to see you again 😊</Text>
       </View>
-
-      <View style={styles.actions}>
-        <Ionicons name="notifications-outline" size={24} color="black" />
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Cerrar sesión</Text>
-        </TouchableOpacity>
-      </View>
+      <Ionicons name="notifications-outline" size={20} color="#333" style={styles.icon} />
+      <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+        <Text style={styles.logoutText}>Cerrar sesión</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -43,38 +38,43 @@ const Header = ({ nombre }: HeaderProps) => {
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  profileSection: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
-  },
-  name: { fontSize: 18, fontWeight: "bold", color: "#000" },
-  subtitle: { fontSize: 14, color: "#666" },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
     gap: 10,
   },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  textContainer: {
+    flexShrink: 1,
+  },
+  name: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#000",
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#666",
+  },
+  icon: {
+    marginLeft: "auto",
+  },
   logoutButton: {
-    marginLeft: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: "#007AFF",
-    borderRadius: 8,
+    borderRadius: 6,
   },
   logoutText: {
     color: "#fff",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
   },
 });
 
