@@ -14,7 +14,7 @@ function RootNavigator() {
   }
 
   return (
-    <Stack>
+    <Stack screenOptions={{ headerShown: false }}>
       {user ? (
         <Stack.Screen
           name="(tabs)"
@@ -29,6 +29,7 @@ function RootNavigator() {
             options={{
               title: "Iniciar Sesión",
               headerStyle: { backgroundColor: "#fff" },
+              headerShown: false
             }}
           />
           <Stack.Screen
@@ -36,6 +37,7 @@ function RootNavigator() {
             options={{
               title: "Registro",
               headerStyle: { backgroundColor: "#fff" },
+              
             }}
           />
         </>
