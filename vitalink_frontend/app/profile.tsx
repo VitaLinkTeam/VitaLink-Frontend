@@ -151,7 +151,7 @@ const ProfileScreen = () => {
         </TouchableOpacity>
 
         {/* Boton de horario */}
-        {rol === 1 || rol === 2 && (
+        {(rol === 1 || rol === 2) && (
           <TouchableOpacity style={styles.scheduleButton} onPress={() => router.push("/schedule")}>
             <Text style={styles.scheduleText}>Modificar Horario</Text>
           </TouchableOpacity>
