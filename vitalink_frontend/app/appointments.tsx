@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { Picker } from "@react-native-picker/picker";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Instalar con: npx expo install @react-native-async-storage/async-storage
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
@@ -30,7 +31,7 @@ const getNombrePorRol = (rol: number) => {
 };
 
 // Datos quemados
-const specialties = ["Consulta general", "Gastroenterologia", "Oftalmologia"]; 
+const specialties = ["Consulta general", "Gastroenterologia", "Oftalmologia"];
 
 const doctorsBySpecialty: Record<string, { name: string; clinic: string }[]> = {
   "Consulta general": [
@@ -49,20 +50,49 @@ const doctorsBySpecialty: Record<string, { name: string; clinic: string }[]> = {
 
 const AppointmentsScreen = () => {
   const { user } = useAuth();
-  const nombre = getNombrePorRol(user?.rol ?? 0);
+  const rol = user?.rol ?? 0;
+  const nombre = getNombrePorRol(rol);
 
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [appointments, setAppointments] = useState<
     { id: number; date: string; title: string; doctor: string; clinic: string }[]
   >([]);
-
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<{ name: string; clinic: string } | null>(null);
+
+  // Cargar citas guardadas cuando se devuelva a la pagina
+  useEffect(() => {
+    const loadAppointments = async () => {
+      try {
+        const savedAppointments = await AsyncStorage.getItem("patientAppointments");
+        if (savedAppointments) {
+          setAppointments(JSON.parse(savedAppointments));
+        }
+      } catch (error) {
+        console.log("Error al cargar citas:", error);
+      }
+    };
+    loadAppointments();
+  }, []);
+
+  // Persistencia de citas
+  const saveAppointments = async (newAppointments: any[]) => {
+    try {
+      await AsyncStorage.setItem("patientAppointments", JSON.stringify(newAppointments));
+    } catch (error) {
+      console.log("Error al guardar citas:", error);
+    }
+  };
 
   // Verificacion si se ha seleccionado tanto especialidad como doctor
   const isSelectionComplete = selectedSpecialty && selectedDoctor;
 
   const addAppointment = () => {
+    if (rol !== 3) {
+      Alert.alert("Acceso denegado", "Solo los pacientes pueden agendar citas.");
+      return;
+    }
+
     if (!selectedDate) {
       Alert.alert("Error", "Por favor seleccione una fecha para su cita.");
       return;
@@ -81,31 +111,46 @@ const AppointmentsScreen = () => {
       clinic: selectedDoctor.clinic,
     };
 
-    setAppointments([...appointments, newAppointment]);
-    console.log(`Cita ha sido agendada con el id ${newAppointment.id}`);
+    const updatedAppointments = [...appointments, newAppointment];
+    setAppointments(updatedAppointments);
+    saveAppointments(updatedAppointments);
+    console.log(`Cita agendada con el id ${newAppointment.id}`);
     Alert.alert(
       "✅ Cita agendada exitosamente",
       `Has agendado una cita con ${selectedDoctor.name} en ${selectedDoctor.clinic}\nFecha: ${selectedDate}`,
-      [{ text: "OK", onPress: () => {
-        // Resetear el calendario despues de agendar
-        setSelectedDate("");
-      }}]
+      [
+        {
+          text: "OK",
+          onPress: () => {
+            setSelectedDate("");
+            setSelectedSpecialty(null);
+            setSelectedDoctor(null);
+          },
+        },
+      ]
     );
   };
 
-  const cancelAppointment = (id) => { 
+  const cancelAppointment = (id: number) => {
+    if (rol !== 3) {
+      Alert.alert("Acceso denegado", "Solo los pacientes pueden cancelar citas.");
+      return;
+    }
+
     Alert.alert(
       "Cancelar Cita",
       "¿Estás seguro que deseas cancelar esta cita?",
       [
         { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Confirmar", 
+        {
+          text: "Confirmar",
           onPress: () => {
-            setAppointments(appointments.filter((appt) => appt.id !== id)); 
-            Alert.alert("Cita cancelada", "La cita fue eliminada correctamente."); 
-          }
-        }
+            const updatedAppointments = appointments.filter((appt) => appt.id !== id);
+            setAppointments(updatedAppointments);
+            saveAppointments(updatedAppointments);
+            Alert.alert("✅ Cancelada", "La cita fue eliminada correctamente.");
+          },
+        },
       ]
     );
   };
@@ -117,33 +162,26 @@ const AppointmentsScreen = () => {
   };
 
   const handleSpecialtyChange = (value: string | null) => {
+    if (rol !== 3) return;
     if (value === null) {
-      // Resetear todo si selecciona el placeholder
       setSelectedSpecialty(null);
       setSelectedDoctor(null);
       setSelectedDate("");
       return;
     }
-    // Si es una especialidad valida, resetea el doctor y la fecha
     setSelectedSpecialty(value);
     setSelectedDoctor(null);
     setSelectedDate("");
   };
 
   const handleDoctorChange = (value: string | null) => {
-    // Este fragmento previene errores si selectedSpecialty es null
-    if (!selectedSpecialty) {
-      return;
-    }
-
+    if (rol !== 3) return;
+    if (!selectedSpecialty) return;
     if (value === null) {
-      // Resetear doctor y fecha si selecciona el placeholder
       setSelectedDoctor(null);
       setSelectedDate("");
       return;
     }
-
-    // Buscar el doctor solo si existe la especialidad
     const doctors = doctorsBySpecialty[selectedSpecialty];
     if (doctors && Array.isArray(doctors)) {
       const doctor = doctors.find((d) => d.name === value);
@@ -154,114 +192,168 @@ const AppointmentsScreen = () => {
     }
   };
 
+  // Marcar fechas de citas en el calendario
+  const markedDates = appointments.reduce((acc, app) => {
+    acc[app.date] = { marked: true, dotColor: "#007AFF" };
+    return acc;
+  }, {});
+
   return (
     <View style={styles.container}>
       <Header nombre={nombre} />
 
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* "Header" de Agendamiento */}
-        <View style={styles.mainCard}>
-          <Text style={styles.title}>Agenda tu Cita Médica</Text>
-          <Text style={styles.subtitle}>Selecciona especialidad y doctor para continuar</Text>
-        </View>
-
-        {/* Seleccion de especialidad */}
-        <View style={styles.selectionCard}>
-          <Text style={styles.sectionTitle}>1. Selecciona Especialidad</Text>
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerWrapper}>
-              <Picker
-                selectedValue={selectedSpecialty}
-                onValueChange={handleSpecialtyChange}
-                style={styles.picker}
-                dropdownIconColor="#007AFF"
-              >
-                <Picker.Item 
-                  label="-- Seleccione especialidad --" 
-                  value={null} 
-                  color="#999"
-                />
-                {specialties.map((spec, index) => (
-                  <Picker.Item 
-                    key={index} 
-                    label={spec} 
-                    value={spec}
-                    color="#333"
-                  />
-                ))}
-              </Picker>
+        {rol === 3 ? (
+          // Vista para pacientes (rol 3)
+          <>
+            <View style={styles.mainCard}>
+              <Text style={styles.title}>Agenda tu Cita Médica</Text>
+              <Text style={styles.subtitle}>Selecciona especialidad y doctor para continuar</Text>
             </View>
-          </View>
 
-          {/* Indicador de seleccion */}
-          {selectedSpecialty && (
-            <View style={styles.selectionIndicator}>
-              <View style={styles.dotSelected}></View>
-              <Text style={styles.indicatorText}>Especialidad seleccionada</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Seleccion de doctor --> visible solo si hay especialidad seleccionada */}
-        {selectedSpecialty && (
-          <View style={styles.selectionCard}>
-            <Text style={styles.sectionTitle}>2. Selecciona Doctor</Text>
-            <View style={styles.pickerContainer}>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={selectedDoctor?.name || null}
-                  onValueChange={handleDoctorChange}
-                  style={styles.picker}
-                  dropdownIconColor="#007AFF"
-                >
-                  <Picker.Item 
-                    label="-- Seleccione doctor --" 
-                    value={null} 
-                    color="#999"
-                  />
-                  {doctorsBySpecialty[selectedSpecialty]?.map((doc, index) => (
-                    <Picker.Item
-                      key={index}
-                      label={`${doc.name} - ${doc.clinic}`}
-                      value={doc.name}
-                      color="#333"
-                    />
-                  )) || null}
-                </Picker>
+            <View style={styles.selectionCard}>
+              <Text style={styles.sectionTitle}>1. Selecciona Especialidad</Text>
+              <View style={styles.pickerContainer}>
+                <View style={styles.pickerWrapper}>
+                  <Picker
+                    selectedValue={selectedSpecialty}
+                    onValueChange={handleSpecialtyChange}
+                    style={styles.picker}
+                    dropdownIconColor="#007AFF"
+                    enabled={rol === 3} // Deshabilitado para otros roles
+                  >
+                    <Picker.Item label="-- Seleccione especialidad --" value={null} color="#999" />
+                    {specialties.map((spec, index) => (
+                      <Picker.Item key={index} label={spec} value={spec} color="#333" />
+                    ))}
+                  </Picker>
+                </View>
               </View>
+              {selectedSpecialty && (
+                <View style={styles.selectionIndicator}>
+                  <View style={styles.dotSelected}></View>
+                  <Text style={styles.indicatorText}>Especialidad seleccionada</Text>
+                </View>
+              )}
             </View>
 
-            {/* Indicador de seleccion */}
-            {selectedDoctor && (
-              <View style={styles.selectionIndicator}>
-                <View style={styles.dotSelected}></View>
-                <Text style={styles.indicatorText}>Doctor seleccionado</Text>
+            {selectedSpecialty && (
+              <View style={styles.selectionCard}>
+                <Text style={styles.sectionTitle}>2. Selecciona Doctor</Text>
+                <View style={styles.pickerContainer}>
+                  <View style={styles.pickerWrapper}>
+                    <Picker
+                      selectedValue={selectedDoctor?.name || null}
+                      onValueChange={handleDoctorChange}
+                      style={styles.picker}
+                      dropdownIconColor="#007AFF"
+                      enabled={rol === 3} // Deshabilitado para otros roles aparte del paciente
+                    >
+                      <Picker.Item label="-- Seleccione doctor --" value={null} color="#999" />
+                      {doctorsBySpecialty[selectedSpecialty]?.map((doc, index) => (
+                        <Picker.Item
+                          key={index}
+                          label={`${doc.name} - ${doc.clinic}`}
+                          value={doc.name}
+                          color="#333"
+                        />
+                      )) || null}
+                    </Picker>
+                  </View>
+                </View>
+                {selectedDoctor && (
+                  <View style={styles.selectionIndicator}>
+                    <View style={styles.dotSelected}></View>
+                    <Text style={styles.indicatorText}>Doctor seleccionado</Text>
+                  </View>
+                )}
               </View>
             )}
-          </View>
-        )}
 
-        {/* Calendario --> es solo visible cuando se haya seleccionado especialidad y doctor */}
-        {isSelectionComplete && (
-          <View style={styles.calendarCard}>
-            <Text style={styles.sectionTitle}>3. Selecciona Fecha</Text>
+            {isSelectionComplete && (
+              <View style={styles.calendarCard}>
+                <Text style={styles.sectionTitle}>3. Selecciona Fecha</Text>
+                <View style={styles.calendarContainer}>
+                  <Calendar
+                    minDate={new Date().toISOString().split("T")[0]}
+                    onDayPress={(day) => setSelectedDate(day.dateString)}
+                    markedDates={markedDates}
+                    theme={{
+                      backgroundColor: "#fff",
+                      calendarBackground: "#fff",
+                      selectedDayBackgroundColor: "#007AFF",
+                      selectedDayTextColor: "#fff",
+                      todayTextColor: "#007AFF",
+                      dayTextColor: "#333",
+                      textDisabledColor: "#d9e1e8",
+                      monthTextColor: "#007AFF",
+                      indicatorColor: "#007AFF",
+                      arrowColor: "#007AFF",
+                    }}
+                    style={styles.calendar}
+                  />
+                </View>
+
+                {selectedDate && (
+                  <View style={styles.dateSelectionCard}>
+                    <Text style={styles.selectedDate}>
+                      📅 Fecha seleccionada: {selectedDate}
+                    </Text>
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity style={styles.addButton} onPress={addAppointment}>
+                        <Text style={styles.addButtonText}>✅ Agendar Cita</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.resetButton} onPress={resetSelection}>
+                        <Text style={styles.resetButtonText}>↻ Cambiar Selección</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {appointments.length > 0 && (
+              <View style={styles.appointmentsCard}>
+                <Text style={styles.sectionTitle}>Mis Citas Agendadas</Text>
+                <FlatList
+                  data={appointments}
+                  keyExtractor={(item) => item.id.toString()}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.appointmentsList}
+                  renderItem={({ item }) => (
+                    <View style={styles.appointmentCard}>
+                      <View style={styles.appointmentInfo}>
+                        <Text style={styles.appointmentSpecialty}>{item.title}</Text>
+                        <Text style={styles.appointmentDoctor}>{item.doctor}</Text>
+                        <Text style={styles.appointmentClinic}>{item.clinic}</Text>
+                        <Text style={styles.appointmentDate}>📅 {item.date}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => cancelAppointment(item.id)}
+                        disabled={rol !== 3} // Deshabilitado para otros roles
+                      >
+                        <Text style={styles.cancelButtonText}>❌ Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                />
+              </View>
+            )}
+          </>
+        ) : (
+          // Vista para medicos, administradores y asistentes (roles 1, 2, 4)
+          <View style={styles.calendarView}>
+            <Text style={styles.sectionTitle}>Calendario de Citas</Text>
             <View style={styles.calendarContainer}>
               <Calendar
                 minDate={new Date().toISOString().split("T")[0]}
-                onDayPress={(day) => setSelectedDate(day.dateString)}
-                markedDates={{
-                  [selectedDate]: { 
-                    selected: true, 
-                    marked: true, 
-                    selectedColor: "#007AFF",
-                    selectedTextColor: "#fff"
-                  },
-                }}
+                markedDates={markedDates}
                 theme={{
                   backgroundColor: "#fff",
                   calendarBackground: "#fff",
-                  selectedDayBackgroundColor: "#007AFF",
-                  selectedDayTextColor: "#fff",
+                  markedDatesBackgroundColor: "#007AFF",
+                  markedDatesTextColor: "#fff",
                   todayTextColor: "#007AFF",
                   dayTextColor: "#333",
                   textDisabledColor: "#d9e1e8",
@@ -270,79 +362,30 @@ const AppointmentsScreen = () => {
                   arrowColor: "#007AFF",
                 }}
                 style={styles.calendar}
+                onDayPress={(day) => Alert.alert("Cita", `Fecha: ${day.dateString}`)}
               />
             </View>
-
-            {selectedDate && (
-              <View style={styles.dateSelectionCard}>
-                <Text style={styles.selectedDate}>
-                  📅 Fecha seleccionada: {selectedDate}
-                </Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity 
-                    style={styles.addButton} 
-                    onPress={addAppointment}
-                  >
-                    <Text style={styles.addButtonText}>✅ Agendar Cita</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.resetButton} 
-                    onPress={resetSelection}
-                  >
-                    <Text style={styles.resetButtonText}>↻ Cambiar Selección</Text>
-                  </TouchableOpacity>
-                </View>
+            {appointments.length > 0 && (
+              <View style={styles.appointmentsCard}>
+                <Text style={styles.sectionTitle}>Citas Agendadas</Text>
+                <FlatList
+                  data={appointments}
+                  keyExtractor={(item) => item.id.toString()}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.appointmentsList}
+                  renderItem={({ item }) => (
+                    <View style={styles.appointmentCard}>
+                      <View style={styles.appointmentInfo}>
+                        <Text style={styles.appointmentSpecialty}>{item.title}</Text>
+                        <Text style={styles.appointmentDoctor}>{item.doctor}</Text>
+                        <Text style={styles.appointmentClinic}>{item.clinic}</Text>
+                        <Text style={styles.appointmentDate}>📅 {item.date}</Text>
+                      </View>
+                    </View>
+                  )}
+                />
               </View>
             )}
-          </View>
-        )}
-
-        {/* Card de citas agendadas */}
-        {appointments.length > 0 && (
-          <View style={styles.appointmentsCard}>
-            <Text style={styles.sectionTitle}>Mis Citas Agendadas</Text>
-            <FlatList
-              data={appointments}
-              keyExtractor={(item) => item.id.toString()}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.appointmentsList}
-              renderItem={({ item }) => (
-                <View style={styles.appointmentCard}>
-                  <View style={styles.appointmentInfo}>
-                    <Text style={styles.appointmentSpecialty}>{item.title}</Text>
-                    <Text style={styles.appointmentDoctor}>{item.doctor}</Text>
-                    <Text style={styles.appointmentClinic}>{item.clinic}</Text>
-                    <Text style={styles.appointmentDate}>📅 {item.date}</Text>
-                  </View>
-                  
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => {
-                      Alert.alert(
-                        "Cancelar Cita",
-                        `¿Esta seguro que desea cancelar su cita con ${item.doctor}?`,
-                        [
-                          { text: "Cancelar", style: "cancel" },
-                          { 
-                            text: "Confirmar", 
-                            onPress: () => {
-                              setAppointments((prevAppointments) => {
-                                const newAppointments = prevAppointments.filter((appt) => appt.id !== item.id);
-                                console.log("Cita eliminada. Nueva longitud:", newAppointments.length);
-                                return newAppointments;
-                              });
-                              Alert.alert("✅ Cancelada", "La cita fue eliminada correctamente.");
-                            }
-                          }
-                        ]
-                      );
-                    }}
-                  >
-                    <Text style={styles.cancelButtonText}>❌ Cancelar</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            />
           </View>
         )}
       </ScrollView>
@@ -357,12 +400,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#007AFF",
   },
-  
   scrollContainer: {
     paddingBottom: 20,
     flexGrow: 1,
   },
-
   mainCard: {
     backgroundColor: "#fff",
     margin: 16,
@@ -376,7 +417,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
   },
-
   selectionCard: {
     backgroundColor: "#fff",
     marginHorizontal: 16,
@@ -389,7 +429,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
   },
-
   calendarCard: {
     backgroundColor: "#fff",
     marginHorizontal: 16,
@@ -402,7 +441,18 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
   },
-
+  calendarView: {
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 20,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
   appointmentsCard: {
     backgroundColor: "#fff",
     marginHorizontal: 16,
@@ -415,7 +465,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
   },
-
   title: {
     fontSize: 24,
     fontWeight: "bold",
@@ -424,14 +473,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontFamily: "Inter",
   },
-
   subtitle: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
     fontFamily: "Inter",
   },
-
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -440,11 +487,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter",
     textAlign: "center",
   },
-
   pickerContainer: {
     marginBottom: 12,
   },
-
   pickerWrapper: {
     backgroundColor: "#f8f9fa",
     borderRadius: 12,
@@ -452,13 +497,11 @@ const styles = StyleSheet.create({
     borderColor: "#e9ecef",
     overflow: "hidden",
   },
-
   picker: {
     height: 50,
-    width: "100%",
+    width: 100,
     backgroundColor: "transparent",
   },
-
   selectionIndicator: {
     flexDirection: "row",
     alignItems: "center",
@@ -469,7 +512,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: "flex-start",
   },
-
   dotSelected: {
     width: 8,
     height: 8,
@@ -477,14 +519,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#007AFF",
     marginRight: 8,
   },
-
   indicatorText: {
     fontSize: 14,
     color: "#007AFF",
     fontWeight: "600",
     fontFamily: "Inter",
   },
-
   calendarContainer: {
     backgroundColor: "#f8f9fa",
     borderRadius: 16,
@@ -496,11 +536,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
   calendar: {
     borderRadius: 12,
   },
-
   dateSelectionCard: {
     backgroundColor: "#f0f8ff",
     padding: 16,
@@ -508,7 +546,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#007AFF",
   },
-
   selectedDate: {
     fontSize: 16,
     color: "#007AFF",
@@ -517,13 +554,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontFamily: "Inter",
   },
-
   actionButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
   },
-
   addButton: {
     flex: 1,
     backgroundColor: "#007AFF",
@@ -536,14 +571,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-
   addButtonText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
     fontFamily: "Inter",
   },
-
   resetButton: {
     flex: 1,
     backgroundColor: "transparent",
@@ -553,18 +586,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
   },
-
   resetButtonText: {
     color: "#007AFF",
     fontWeight: "600",
     fontSize: 16,
     fontFamily: "Inter",
   },
-
   appointmentsList: {
     paddingBottom: 12,
   },
-
   appointmentCard: {
     backgroundColor: "#f8f9fa",
     padding: 16,
@@ -581,12 +611,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
   appointmentInfo: {
     flex: 1,
     marginRight: 12,
   },
-
   appointmentSpecialty: {
     fontSize: 16,
     fontWeight: "700",
@@ -594,28 +622,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontFamily: "Inter",
   },
-
   appointmentDoctor: {
     fontSize: 15,
     color: "#333",
     marginBottom: 2,
     fontFamily: "Inter",
   },
-
   appointmentClinic: {
     fontSize: 14,
     color: "#666",
     marginBottom: 4,
     fontFamily: "Inter",
   },
-
   appointmentDate: {
     fontSize: 14,
     color: "#007AFF",
     fontWeight: "600",
     fontFamily: "Inter",
   },
-
   cancelButton: {
     backgroundColor: "#FF3B30",
     paddingVertical: 8,
@@ -629,7 +653,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
   cancelButtonText: {
     color: "#fff",
     fontWeight: "600",

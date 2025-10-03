@@ -11,26 +11,26 @@ const Footer = () => {
   const tabs =
     user?.rol === 1
       ? [
-          { icon: "home-outline", label: "Home", route: "/HomeScreen" },
-          { icon: "calendar-outline", label: "Appointments", route: "/appointments" },
-          { icon: "document-text-outline", label: "History", route: "/history" },
-          { icon: "people-outline", label: "Patients", route: "/patients" },
-          { icon: "person-outline", label: "Profile", route: "/profile" },
+          { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
+          { icon: "calendar-outline", label: "Citas", route: "/appointments" },
+          { icon: "document-text-outline", label: "Historial", route: "/history" },
+          { icon: "people-outline", label: "Pacientes", route: "/patients" },
+          { icon: "person-outline", label: "Perfil", route: "/profile" },
         ]
       : user?.rol === 2 || user?.rol === 4
       ? [
-          { icon: "home-outline", label: "Home", route: "/HomeScreen" },
-          { icon: "calendar-outline", label: "Appointments", route: "/appointments" },
+          { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
+          { icon: "calendar-outline", label: "Citas", route: "/appointments" },
           { icon: "mail-outline", label: "Inbox", route: "/inbox" },
-          { icon: "people-outline", label: "Patients", route: "/patients" },
-          { icon: "person-outline", label: "Profile", route: "/profile" },
+          { icon: "people-outline", label: "Pacientes", route: "/patients" },
+          { icon: "person-outline", label: "Perfil", route: "/profile" },
         ]
       : [
-          { icon: "home-outline", label: "Home", route: "/HomeScreen" },
-          { icon: "calendar-outline", label: "Appointments", route: "/appointments" },
-          { icon: "document-text-outline", label: "History", route: "/history" },
+          { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
+          { icon: "calendar-outline", label: "Citas", route: "/appointments" },
+          { icon: "document-text-outline", label: "Historial", route: "/history" },
           { icon: "chatbubble-ellipses-outline", label: "Chat", route: "/chat" },
-          { icon: "person-outline", label: "Profile", route: "/profile" },
+          { icon: "person-outline", label: "Perfil", route: "/profile" },
         ];
 
   return (

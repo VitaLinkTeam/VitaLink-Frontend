@@ -19,7 +19,6 @@ const ProfileScreen = () => {
   const router = useRouter();
   const rol = user?.rol;
 
-  // Nombre dinámico para el Header
   const getNombrePorRol = () => {
     switch (rol) {
       case 1: return "Dra. Rafaela Amador";
@@ -29,7 +28,6 @@ const ProfileScreen = () => {
     }
   };
 
-  // Datos por rol
   const getDefaultProfile = () => {
     switch (rol) {
       case 1:
@@ -78,7 +76,7 @@ const ProfileScreen = () => {
       <ScrollView style={styles.container}>
         <Text style={styles.title}>Perfil</Text>
 
-        {/* Imagen de perfil + ícono de editar */}
+        {/* Imagen de perfil + icono para editar */}
         <View style={styles.avatarContainer}>
           <Image
             source={require("../assets/images/user_placeholder.png")}
@@ -89,7 +87,7 @@ const ProfileScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Campo: Título (solo médico) */}
+        {/* Campo: Titulo (solo medico puede ver esto) */}
         {rol === 1 && (
           <View style={styles.field}>
             <Text style={styles.label}>Título</Text>
@@ -132,7 +130,7 @@ const ProfileScreen = () => {
           </View>
         </View>
 
-        {/* Campo: Clínica (oculto solo para paciente) */}
+        {/* Campo de Clinica asociada (solo no se muestra a pacientes) */}
         {rol !== 3 && (
           <View style={styles.field}>
             <Text style={styles.label}>Clínica asociada</Text>
@@ -147,10 +145,17 @@ const ProfileScreen = () => {
           </View>
         )}
 
-        {/* Botón guardar */}
-        <TouchableOpacity style={styles.saveButton}>
+        {/* Boton para guardar cambios */}
+        <TouchableOpacity style={styles.saveButton} onPress={() => console.log("Guardar cambios")}>
           <Text style={styles.saveText}>Guardar Cambios</Text>
         </TouchableOpacity>
+
+        {/* Boton de horario */}
+        {rol === 1 || rol === 2 && (
+          <TouchableOpacity style={styles.scheduleButton} onPress={() => router.push("/schedule")}>
+            <Text style={styles.scheduleText}>Modificar Horario</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       {/* Footer */}
@@ -217,6 +222,18 @@ const styles = StyleSheet.create({
     marginTop: 30,
   },
   saveText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  scheduleButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  scheduleText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",

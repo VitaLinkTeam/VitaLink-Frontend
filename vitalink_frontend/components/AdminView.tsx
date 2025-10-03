@@ -68,9 +68,9 @@ const AdminView = () => {
       {/* Lista de médicos */}
       <Text style={styles.sectionTitle}>Lista de Médicos Disponibles</Text>
       {[
-        { name: "Jennifer Connors", specialty: "Pediatra" },
-        { name: "John Smith", specialty: "Cardiólogo" },
-        { name: "Alice Brown", specialty: "General" },
+        { name: "Dra. Rafaela Amador", specialty: "Pediatra" },
+        { name: "Dr. Gabriel Mendez", specialty: "Gastroenterologo" },
+        { name: "Dra. Fernanda Sanchez", specialty: "General" },
       ].map((doctor, index) => (
         <View key={index} style={styles.doctorCard}>
           <Image

@@ -25,7 +25,7 @@ const Header = ({ nombre }: HeaderProps) => {
       />
       <View style={styles.textContainer}>
         <Text style={styles.name}>{nombre}</Text>
-        <Text style={styles.subtitle}>We are happy to see you again 😊</Text>
+        <Text style={styles.subtitle}>Que bueno tenerle de vuelta 😊</Text>
       </View>
       <Ionicons name="notifications-outline" size={20} color="#333" style={styles.icon} />
       <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
