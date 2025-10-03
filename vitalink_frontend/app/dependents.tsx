@@ -1,18 +1,18 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from "react-native";
 import { Picker } from "@react-native-picker/picker";
+import { v4 as uuidv4 } from 'uuid';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "expo-router";
-import { v4 as uuidv4 } from 'uuid';
 
 const DependentsScreen = () => {
   const { user } = useAuth();
   const rol = user?.rol;
   const router = useRouter();
 
-  // Nombre dinámico para el Header (similar a ProfileScreen)
   const getNombrePorRol = () => {
     switch (rol) {
       case 1:
@@ -27,36 +27,36 @@ const DependentsScreen = () => {
     }
   };
 
-  // Parentezcos de la tabla Parentezco (quemados)
   const parentezcos = [
     "Padre", "Madre", "Hijo", "Hija", "Abuelo", "Abuela", "Nieto", "Nieta",
     "Hermano", "Hermana", "Tío", "Tía", "Primo", "Prima", "Sobrino", "Sobrina",
     "Pareja", "Cónyuge", "Tutor", "Representante legal"
   ];
 
-  // Estado para dependientes (quemados para simular)
   const [dependents, setDependents] = useState([
-    { id: 1, nombre: "Juan Lizano", parentezco: "Hijo", correo: "juan@example.com" },
-    { id: 2, nombre: "Maria Lizano", parentezco: "Hija", correo: "maria@example.com" },
+    { id: uuidv4(), nombre: "Juan Lizano", parentezco: "Hijo", correo: "juan@example.com" },
+    { id: uuidv4(), nombre: "Maria Lizano", parentezco: "Hija", correo: "maria@example.com" },
   ]);
 
-  // Estado para agregar nuevo dependiente
   const [newNombre, setNewNombre] = useState("");
   const [newCorreo, setNewCorreo] = useState("");
   const [newParentezco, setNewParentezco] = useState(parentezcos[0]);
 
-  // Función para agregar dependiente (simulada, en backend usar sp_insert_paciente y tabla Dependiente)
-   const addDependent = () => {
+  useEffect(() => {
+    console.log("Dependientes actualizados:", dependents);
+  }, [dependents]);
+
+  const addDependent = () => {
     if (!newNombre || !newCorreo) {
-        Alert.alert("Error", "Por favor completa todos los campos.");
-        return;
+      Alert.alert("Error", "Por favor completa todos los campos.");
+      return;
     }
 
     const newDependent = {
-        id: uuidv4(), // Genera un ID único
-        nombre: newNombre,
-        parentezco: newParentezco,
-        correo: newCorreo,
+      id: uuidv4(),
+      nombre: newNombre,
+      parentezco: newParentezco,
+      correo: newCorreo,
     };
 
     setDependents([...dependents, newDependent]);
@@ -64,47 +64,42 @@ const DependentsScreen = () => {
     setNewCorreo("");
     setNewParentezco(parentezcos[0]);
     Alert.alert("Éxito", "Dependiente agregado correctamente.");
-    };
+  };
 
-  // Función para eliminar dependiente (simulada, en backend eliminar de Dependiente)
   const deleteDependent = (id) => {
-  Alert.alert(
-    "Eliminar Dependiente",
-    "¿Estás seguro de eliminar este dependiente?",
-    [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Confirmar",
-        onPress: () => {
-          setDependents((prevDependents) => {
-            const newDependents = prevDependents.filter((dep) => dep.id !== id);
-            console.log("Nuevo estado de dependientes:", newDependents);
-            return newDependents;
-          });
-          Alert.alert("Éxito", "Dependiente eliminado.");
+    Alert.alert(
+      "Eliminar Dependiente",
+      "¿Estás seguro de eliminar este dependiente?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: () => {
+            setDependents((prevDependents) => {
+              const newDependents = prevDependents.filter((dep) => dep.id !== id);
+              console.log("Nuevo estado de dependientes:", newDependents);
+              return newDependents;
+            });
+            Alert.alert("Éxito", "Dependiente eliminado.");
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
 
-  // Solo permitir acceso para pacientes (rol 3)
   if (rol !== 3) {
     return (
-      <View style={styles.deniedContainer}>
+      <SafeAreaView style={styles.deniedContainer}>
         <Text style={styles.deniedText}>Acceso denegado. Solo para pacientes.</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.mainContainer}>
+    <SafeAreaView style={styles.mainContainer}>
       <Header nombre={getNombrePorRol()} />
-
       <ScrollView style={styles.scrollContainer}>
         <Text style={styles.screenTitle}>Gestionar Dependientes</Text>
-
-        {/* Lista de dependientes */}
         <Text style={styles.sectionLabel}>Dependientes Actuales</Text>
         {dependents.length > 0 ? (
           dependents.map((dep) => (
@@ -123,8 +118,6 @@ const DependentsScreen = () => {
         ) : (
           <Text style={styles.noDependents}>No tienes dependientes agregados.</Text>
         )}
-
-        {/* Agregar nuevo dependiente */}
         <Text style={styles.sectionLabel}>Agregar Nuevo Dependiente</Text>
         <View style={styles.field}>
           <Text style={styles.label}>Nombre</Text>
@@ -161,9 +154,8 @@ const DependentsScreen = () => {
           <Text style={styles.addButtonText}>Agregar Dependiente</Text>
         </TouchableOpacity>
       </ScrollView>
-
       <Footer />
-    </View>
+    </SafeAreaView>
   );
 };
 

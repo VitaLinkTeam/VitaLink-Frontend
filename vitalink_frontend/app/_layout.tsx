@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { View, ActivityIndicator } from "react-native";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import 'react-native-get-random-values'; // Agregar el polyfill aquí
 
 function RootNavigator() {
   const { user, loading } = useAuth();
@@ -37,7 +38,6 @@ function RootNavigator() {
             options={{
               title: "Registro",
               headerStyle: { backgroundColor: "#fff" },
-              
             }}
           />
         </>
