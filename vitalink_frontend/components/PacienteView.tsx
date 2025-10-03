@@ -3,9 +3,11 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, ScrollView 
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import Footer from "../components/Footer";
+import { useRouter } from "expo-router"; // Importar router para navegación
 
 const PacienteView = () => {
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const router = useRouter(); // Router para navegar a /dependents
 
   return (
     <ScrollView style={styles.container}>
@@ -83,6 +85,15 @@ const PacienteView = () => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Sección para Gestionar Dependientes */}
+      <Text style={styles.sectionTitle}>Dependientes</Text>
+      <TouchableOpacity
+        style={styles.dependentsButton}
+        onPress={() => router.push("/dependents")}
+      >
+        <Text style={styles.dependentsButtonText}>Gestionar Dependientes</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 };
@@ -141,6 +152,20 @@ const styles = StyleSheet.create({
   recommendationText: { fontSize: 14, color: "#333" },
   recommendationDescription: { fontSize: 12, color: "#666", marginVertical: 5 },
   moreLink: { fontSize: 14, color: "#007AFF", fontWeight: "600" },
+  // Estilos para el botón de dependientes
+  dependentsButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  dependentsButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
 });
 
 export default PacienteView;

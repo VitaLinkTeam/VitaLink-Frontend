@@ -54,9 +54,10 @@ const AppointmentsScreen = () => {
   const nombre = getNombrePorRol(rol);
 
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedTime, setSelectedTime] = useState<string>("06:00"); // Nueva variable para la hora
   const [appointments, setAppointments] = useState<
-    { id: number; date: string; title: string; doctor: string; clinic: string }[]
-  >([]);
+    { id: number; date: string; title: string; doctor: string; clinic: string; canceled: boolean }[]
+  >([]); // Agregado campo 'canceled'
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<{ name: string; clinic: string } | null>(null);
 
@@ -66,7 +67,13 @@ const AppointmentsScreen = () => {
       try {
         const savedAppointments = await AsyncStorage.getItem("patientAppointments");
         if (savedAppointments) {
-          setAppointments(JSON.parse(savedAppointments));
+          const parsedAppointments = JSON.parse(savedAppointments);
+          // Asegurarse de que todas las citas tengan el campo 'canceled'
+          const updatedAppointments = parsedAppointments.map((appt) => ({
+            ...appt,
+            canceled: appt.canceled || false,
+          }));
+          setAppointments(updatedAppointments);
         }
       } catch (error) {
         console.log("Error al cargar citas:", error);
@@ -103,12 +110,20 @@ const AppointmentsScreen = () => {
       return;
     }
 
+    const appointmentDateTime = `${selectedDate} ${selectedTime}`; // Combinar fecha y hora
+    // Verificar si ya existe una cita en esa fecha y hora (activa o cancelada)
+    if (appointments.some((appt) => appt.date === appointmentDateTime && !appt.canceled)) {
+      Alert.alert("Error", "Ya existe una cita en esa fecha y hora.");
+      return;
+    }
+
     const newAppointment = {
       id: Date.now(),
-      date: selectedDate,
+      date: appointmentDateTime,
       title: selectedSpecialty,
       doctor: selectedDoctor.name,
       clinic: selectedDoctor.clinic,
+      canceled: false,
     };
 
     const updatedAppointments = [...appointments, newAppointment];
@@ -117,12 +132,13 @@ const AppointmentsScreen = () => {
     console.log(`Cita agendada con el id ${newAppointment.id}`);
     Alert.alert(
       "✅ Cita agendada exitosamente",
-      `Has agendado una cita con ${selectedDoctor.name} en ${selectedDoctor.clinic}\nFecha: ${selectedDate}`,
+      `Has agendado una cita con ${selectedDoctor.name} en ${selectedDoctor.clinic}\nFecha y hora: ${appointmentDateTime}`,
       [
         {
           text: "OK",
           onPress: () => {
             setSelectedDate("");
+            setSelectedTime("06:00"); // Resetear la hora
             setSelectedSpecialty(null);
             setSelectedDoctor(null);
           },
@@ -144,10 +160,19 @@ const AppointmentsScreen = () => {
         { text: "Cancelar", style: "cancel" },
         {
           text: "Confirmar",
-          onPress: () => {
-            const updatedAppointments = appointments.filter((appt) => appt.id !== id);
+          onPress: async () => {
+            const appointmentToCancel = appointments.find((appt) => appt.id === id);
+            if (!appointmentToCancel) {
+              Alert.alert("Error", "No se encontró la cita para cancelar.");
+              return;
+            }
+
+            const updatedAppointments = appointments.map((appt) =>
+              appt.id === id ? { ...appt, canceled: true } : appt
+            );
             setAppointments(updatedAppointments);
-            saveAppointments(updatedAppointments);
+            await saveAppointments(updatedAppointments);
+            console.log("Cita cancelada con id:", id, "Actualizados:", updatedAppointments);
             Alert.alert("✅ Cancelada", "La cita fue eliminada correctamente.");
           },
         },
@@ -155,10 +180,12 @@ const AppointmentsScreen = () => {
     );
   };
 
+  // Cuando se agenda una cita se resetean todas las opciones: especialidad, doctor, fecha y hora
   const resetSelection = () => {
     setSelectedSpecialty(null);
     setSelectedDoctor(null);
     setSelectedDate("");
+    setSelectedTime("06:00");
   };
 
   const handleSpecialtyChange = (value: string | null) => {
@@ -167,11 +194,13 @@ const AppointmentsScreen = () => {
       setSelectedSpecialty(null);
       setSelectedDoctor(null);
       setSelectedDate("");
+      setSelectedTime("06:00");
       return;
     }
     setSelectedSpecialty(value);
     setSelectedDoctor(null);
     setSelectedDate("");
+    setSelectedTime("06:00");
   };
 
   const handleDoctorChange = (value: string | null) => {
@@ -180,6 +209,7 @@ const AppointmentsScreen = () => {
     if (value === null) {
       setSelectedDoctor(null);
       setSelectedDate("");
+      setSelectedTime("06:00");
       return;
     }
     const doctors = doctorsBySpecialty[selectedSpecialty];
@@ -188,13 +218,15 @@ const AppointmentsScreen = () => {
       if (doctor) {
         setSelectedDoctor(doctor);
         setSelectedDate("");
+        setSelectedTime("06:00");
       }
     }
   };
 
   // Marcar fechas de citas en el calendario
   const markedDates = appointments.reduce((acc, app) => {
-    acc[app.date] = { marked: true, dotColor: "#007AFF" };
+    const dateOnly = app.date.split(" ")[0];
+    acc[dateOnly] = { marked: true, dotColor: "#007AFF" };
     return acc;
   }, {});
 
@@ -272,7 +304,7 @@ const AppointmentsScreen = () => {
 
             {isSelectionComplete && (
               <View style={styles.calendarCard}>
-                <Text style={styles.sectionTitle}>3. Selecciona Fecha</Text>
+                <Text style={styles.sectionTitle}>3. Selecciona Fecha y Hora</Text>
                 <View style={styles.calendarContainer}>
                   <Calendar
                     minDate={new Date().toISOString().split("T")[0]}
@@ -299,6 +331,31 @@ const AppointmentsScreen = () => {
                     <Text style={styles.selectedDate}>
                       📅 Fecha seleccionada: {selectedDate}
                     </Text>
+                    <Text style={styles.label}>Hora:</Text>
+                    <View style={styles.pickerContainer}>
+                      <View style={styles.pickerWrapper}>
+                        <Picker
+                          selectedValue={selectedTime}
+                          onValueChange={setSelectedTime}
+                          style={styles.picker}
+                          dropdownIconColor="#007AFF"
+                        >
+                          {Array.from({ length: 33 }, (_, i) => {
+                            const hour = 6 + Math.floor(i / 2);
+                            const minute = i % 2 === 0 ? "00" : "30";
+                            const time = `${hour < 10 ? "0" + hour : hour}:${minute}`;
+                            return (
+                              <Picker.Item
+                                key={time}
+                                label={time}
+                                value={time}
+                                color="#333"
+                              />
+                            );
+                          })}
+                        </Picker>
+                      </View>
+                    </View>
                     <View style={styles.actionButtons}>
                       <TouchableOpacity style={styles.addButton} onPress={addAppointment}>
                         <Text style={styles.addButtonText}>✅ Agendar Cita</Text>
@@ -321,20 +378,30 @@ const AppointmentsScreen = () => {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.appointmentsList}
                   renderItem={({ item }) => (
-                    <View style={styles.appointmentCard}>
+                    <View style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}>
                       <View style={styles.appointmentInfo}>
-                        <Text style={styles.appointmentSpecialty}>{item.title}</Text>
-                        <Text style={styles.appointmentDoctor}>{item.doctor}</Text>
-                        <Text style={styles.appointmentClinic}>{item.clinic}</Text>
-                        <Text style={styles.appointmentDate}>📅 {item.date}</Text>
+                        <Text style={[styles.appointmentSpecialty, item.canceled && styles.canceledText]}>
+                          {item.title}
+                        </Text>
+                        <Text style={[styles.appointmentDoctor, item.canceled && styles.canceledText]}>
+                          {item.doctor}
+                        </Text>
+                        <Text style={[styles.appointmentClinic, item.canceled && styles.canceledText]}>
+                          {item.clinic}
+                        </Text>
+                        <Text style={[styles.appointmentDate, item.canceled && styles.canceledText]}>
+                          📅 {item.date}
+                        </Text>
                       </View>
-                      <TouchableOpacity
-                        style={styles.cancelButton}
-                        onPress={() => cancelAppointment(item.id)}
-                        disabled={rol !== 3} // Deshabilitado para otros roles
-                      >
-                        <Text style={styles.cancelButtonText}>❌ Cancelar</Text>
-                      </TouchableOpacity>
+                      {!item.canceled && (
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={() => cancelAppointment(item.id)}
+                          disabled={rol !== 3} // Deshabilitado para otros roles
+                        >
+                          <Text style={styles.cancelButtonText}>❌ Cancelar</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 />
@@ -374,12 +441,20 @@ const AppointmentsScreen = () => {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.appointmentsList}
                   renderItem={({ item }) => (
-                    <View style={styles.appointmentCard}>
+                    <View style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}>
                       <View style={styles.appointmentInfo}>
-                        <Text style={styles.appointmentSpecialty}>{item.title}</Text>
-                        <Text style={styles.appointmentDoctor}>{item.doctor}</Text>
-                        <Text style={styles.appointmentClinic}>{item.clinic}</Text>
-                        <Text style={styles.appointmentDate}>📅 {item.date}</Text>
+                        <Text style={[styles.appointmentSpecialty, item.canceled && styles.canceledText]}>
+                          {item.title}
+                        </Text>
+                        <Text style={[styles.appointmentDoctor, item.canceled && styles.canceledText]}>
+                          {item.doctor}
+                        </Text>
+                        <Text style={[styles.appointmentClinic, item.canceled && styles.canceledText]}>
+                          {item.clinic}
+                        </Text>
+                        <Text style={[styles.appointmentDate, item.canceled && styles.canceledText]}>
+                          📅 {item.date}
+                        </Text>
                       </View>
                     </View>
                   )}
@@ -499,7 +574,7 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
-    width: 100,
+    width: "100%", // Corregido de 100 a "100%" para que se ajuste al contenedor
     backgroundColor: "transparent",
   },
   selectionIndicator: {
@@ -553,6 +628,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
     fontFamily: "Inter",
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 5,
+    color: "#333",
   },
   actionButtons: {
     flexDirection: "row",
@@ -611,6 +692,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  canceledAppointment: {
+    backgroundColor: "#f0f0f0", // Fondo gris para citas canceladas
+    opacity: 0.6,
+  },
   appointmentInfo: {
     flex: 1,
     marginRight: 12,
@@ -658,6 +743,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
     fontFamily: "Inter",
+  },
+  canceledText: {
+    textDecorationLine: "line-through", // Texto tachado para citas canceladas
+    color: "#666",
   },
 });
 
