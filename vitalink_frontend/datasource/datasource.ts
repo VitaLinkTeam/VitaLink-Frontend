@@ -3,16 +3,16 @@ import { Usuario } from "@/models/Usuario";
 
 // Datos de prueba mientras no hay backend
 export const rolesMock: Rol[] = [
-{ IN_id: 1, VA_nombre: "Medico" },
-{ IN_id: 2, VA_nombre: "Administrador" },
-{ IN_id: 3, VA_nombre: "Paciente" },
-{ IN_id: 4, VA_nombre: "Asistente" },
+{ id: 1, nombre: "Medico" },
+{ id: 2, nombre: "Administrador" },
+{ id: 3, nombre: "Paciente" },
+{ id: 4, nombre: "Asistente" },
 ];
 
-export const usuariosMock: Usuario[] = [
+/*export const usuariosMock: Usuario[] = [
   {
-  VA_uid: "3",
-  IN_FK_role: 3,
+  uid: "3",
+  role: 3,
   VA_email: "paciente@gmail.com",
   VA_fotoURL: "x",
   VA_numeroTelefonico: "82345678", 
@@ -49,4 +49,4 @@ export const usuariosMock: Usuario[] = [
   BO_emailVerificado: true,
   password: "d4",
   },
-];
+];*/

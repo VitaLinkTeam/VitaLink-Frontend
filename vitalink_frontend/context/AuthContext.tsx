@@ -1,54 +1,58 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { usuariosMock } from "@/datasource/datasource";
-
-type User = {
-  id: string;
-  email: string;
-  rol: number;
-};
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { Usuario } from "@/models/Usuario"; 
+import  { auth } from "@/services/firebaseAuth"; 
 
 type AuthContextType = {
-  user: User | null;
+  user: Usuario | null;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loading: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true); 
+  const [user, setUser] = useState<Usuario | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkSession = async () => {
-      setLoading(true);
-      setTimeout(() => {
-        setUser(null); 
-        setLoading(false);
-      }, 1000);
-    };
-    checkSession();
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        const userData: Usuario = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || "",
+        };
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const login = async (email: string, password: string) => {
-  const user = usuariosMock.find(
-    (u) => u.VA_email === email && u.password === password
-  );
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = credential.user;
 
-  if (user) {
-    setUser({
-      id: user.VA_uid,
-      email: user.VA_email,
-      rol: user.IN_FK_role,
-    });
-    console.log("¡Usuario logueado con éxito!", user); // Añade esta línea
-  } else {
-    throw new Error("Credenciales inválidas");
-  }
-};
+      const userData: Usuario = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || "",
+      };
 
-  const logout = () => {
+      setUser(userData);
+      console.log("✅ Usuario autenticado:", firebaseUser.email);
+    } catch (error: any) {
+      console.error("❌ Error al iniciar sesión:", error.message);
+      throw new Error("Credenciales inválidas o usuario no encontrado");
+    }
+  };
+
+  const logout = async () => {
+    await signOut(auth);
     setUser(null);
   };
 
@@ -61,8 +65,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth debe usarse dentro de un AuthProvider");
-  }
+  if (!context) throw new Error("useAuth debe usarse dentro de un AuthProvider");
   return context;
 };
