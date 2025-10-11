@@ -57,6 +57,7 @@ const HistorialCitasScreen = () => {
     <View style={styles.container}>
       <Header nombre={nombre} />
 
+      {/* 🔹 Scroll principal */}
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.mainCard}>
           <Text style={styles.title}>Historial de Citas</Text>
@@ -67,9 +68,12 @@ const HistorialCitasScreen = () => {
 
         <View style={styles.appointmentsCard}>
           <Text style={styles.sectionTitle}>Citas Registradas</Text>
+
+          {/* 🔹 FlatList SIN scroll (para evitar error) */}
           <FlatList
             data={historialCitas}
             keyExtractor={(item) => item.id.toString()}
+            scrollEnabled={false} // ✅ Soluciona el error
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.appointmentsList}
             renderItem={({ item }) => (
@@ -120,7 +124,9 @@ const HistorialCitasScreen = () => {
                         : styles.canceledStatus,
                     ]}
                   >
-                    {item.status === "Completada" ? "✅ Completada" : "❌ Cancelada"}
+                    {item.status === "Completada"
+                      ? "✅ Completada"
+                      : "❌ Cancelada"}
                   </Text>
                 </View>
               </View>
