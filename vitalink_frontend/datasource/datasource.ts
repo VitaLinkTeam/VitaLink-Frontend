@@ -9,8 +9,8 @@ export const rolesMock: Rol[] = [
 { id: 4, nombre: "Asistente" },
 ];
 
-/*export const usuariosMock: Usuario[] = [
-  {
+export const usuariosMock: Usuario[] = [
+  /*{
   uid: "3",
   role: 3,
   VA_email: "paciente@gmail.com",
@@ -48,5 +48,5 @@ export const rolesMock: Rol[] = [
   VA_numeroTelefonico: "81818181", 
   BO_emailVerificado: true,
   password: "d4",
-  },
-];*/
+  },*/
+];

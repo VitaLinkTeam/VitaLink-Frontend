@@ -3,7 +3,8 @@ import { View, ActivityIndicator } from "react-native";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import 'react-native-get-random-values'; // Agregar el polyfill aquí
 
-function RootNavigator() {
+// Componente que usa useAuth dentro del contexto
+function AuthenticatedNavigation() {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -15,7 +16,7 @@ function RootNavigator() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack>
       {user ? (
         <Stack.Screen
           name="(tabs)"
@@ -29,8 +30,7 @@ function RootNavigator() {
             name="login"
             options={{
               title: "Iniciar Sesión",
-              headerStyle: { backgroundColor: "#fff" },
-              headerShown: false
+              headerShown: false,
             }}
           />
           <Stack.Screen
@@ -49,7 +49,9 @@ function RootNavigator() {
 export default function Layout() {
   return (
     <AuthProvider>
-      <RootNavigator />
+      <Stack screenOptions={{ headerShown: false }}>
+        <AuthenticatedNavigation />
+      </Stack>
     </AuthProvider>
   );
 }

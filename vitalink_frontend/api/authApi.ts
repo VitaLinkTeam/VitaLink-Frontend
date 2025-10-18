@@ -1,7 +1,7 @@
 import axios from "axios";
 import { Usuario } from "@/models/Usuario";
 
-const API_URL = "http://localhost:8081/api/auth"; // ajustar url
+const API_URL = "http://localhost:8080/api/auth"; // ajustar url
 
 export const getSession = async (token: string): Promise<Usuario> => {
   const res = await axios.post(`${API_URL}/session`, {}, {
