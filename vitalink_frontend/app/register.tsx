@@ -1,8 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { signupUser, getSession } from '../api/authApi'; // Ajusta la ruta según tu estructura
+import { Usuario } from '@/models/Usuario'; // Asegúrate de que el modelo esté accesible
+import { auth } from '@/services/firebaseAuth'; // Usa la instancia inicializada
 
 const RegisterScreen = () => {
   const [nombre, setNombre] = useState('');
@@ -15,13 +19,15 @@ const RegisterScreen = () => {
   const [clinicAddress, setClinicAddress] = useState('');
   const [clinicPhone, setClinicPhone] = useState('');
   const [clinicEmail, setClinicEmail] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
   const router = useRouter();
 
   const handleNext = useCallback(() => {
     if (userType === 'admin') {
       setShowClinicForm(true);
     } else {
-      console.log('Registro con:', nombre, correo, contrasena, confirmarContrasena);
+      handleNormalUserSignup();
     }
   }, [userType, nombre, correo, contrasena, confirmarContrasena]);
 
@@ -37,6 +43,64 @@ const RegisterScreen = () => {
     setClinicEmail('');
   };
 
+  const handleNormalUserSignup = async () => {
+    if (!nombre || !correo || !contrasena || !confirmarContrasena) {
+      setModalMessage('Por favor, completa todos los campos.');
+      setModalVisible(true);
+      return;
+    }
+
+    if (contrasena !== confirmarContrasena) {
+      setModalMessage('Las contraseñas no coinciden.');
+      setModalVisible(true);
+      return;
+    }
+
+    try {
+      // ✅ Registrar en Firebase (versión Web)
+      const firebaseUserCredential = await createUserWithEmailAndPassword(
+        auth,
+        correo,
+        contrasena
+      );
+      const firebaseToken = await firebaseUserCredential.user.getIdToken();
+
+      // ✅ Registrar en tu backend
+      const signUpRequest = {
+        email: correo,
+        roleName: 'USER',
+        name: nombre,
+        numeroTelefonico: '',
+        fotoURL: '',
+        clinicaId: null,
+      };
+      await signupUser(firebaseToken, signUpRequest);
+
+      const sessionData = await getSession(firebaseToken);
+      console.log('Sesión creada:', sessionData);
+
+      setModalMessage('Usuario creado correctamente. Iniciando sesión...');
+      setModalVisible(true);
+      setTimeout(() => {
+        setModalVisible(false);
+        router.replace('/HomeScreen');
+      }, 2000);
+    } catch (error) {
+      console.error('Error en registro:', error);
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 'auth/email-already-in-use'
+      ) {
+        setModalMessage('El correo ya está registrado en Firebase.');
+      } else {
+        setModalMessage('Error al crear el usuario. Inténtalo de nuevo.');
+      }
+      setModalVisible(true);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -48,115 +112,131 @@ const RegisterScreen = () => {
           <Text style={styles.titleText}>
             {showClinicForm ? 'Registrar Clínica' : 'Registro'}
           </Text>
-
-          {!showClinicForm ? (
-            <View style={styles.inputContainer}>
-              <View style={styles.radioContainer}>
-                <TouchableOpacity
-                  style={styles.radioButton}
-                  onPress={() => setUserType('normal')}
-                >
-                  <View style={styles.radioCircle}>
-                    {userType === 'normal' && <View style={styles.selectedRb} />}
-                  </View>
-                  <Text style={styles.radioText}>Usuario</Text>
+          <View style={styles.inputContainer}>
+            {!showClinicForm ? (
+              <>
+                <View style={styles.radioContainer}>
+                  <TouchableOpacity
+                    style={styles.radioButton}
+                    onPress={() => setUserType('normal')}
+                  >
+                    <View style={styles.radioCircle}>
+                      {userType === 'normal' && <View style={styles.selectedRb} />}
+                    </View>
+                    <Text style={styles.radioText}>Usuario</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.radioButton}
+                    onPress={() => setUserType('admin')}
+                  >
+                    <View style={styles.radioCircle}>
+                      {userType === 'admin' && <View style={styles.selectedRb} />}
+                    </View>
+                    <Text style={styles.radioText}>Admin</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Nombre"
+                  value={nombre}
+                  onChangeText={setNombre}
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Correo electrónico"
+                  value={correo}
+                  onChangeText={setCorreo}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Contraseña"
+                  value={contrasena}
+                  onChangeText={setContrasena}
+                  secureTextEntry
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Confirmar Contraseña"
+                  value={confirmarContrasena}
+                  onChangeText={setConfirmarContrasena}
+                  secureTextEntry
+                  placeholderTextColor="#666"
+                />
+                <TouchableOpacity style={styles.registerButton} onPress={handleNext}>
+                  <Text style={styles.buttonText}>{userType === 'normal' ? 'Crear usuario' : 'Siguiente'}</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
+                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>¿Ya tienes cuenta? Inicia Sesión</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                  <Ionicons name="arrow-back" size={24} color="#007AFF" />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Nombre de la Clínica"
+                  value={clinicName}
+                  onChangeText={setClinicName}
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Dirección"
+                  value={clinicAddress}
+                  onChangeText={setClinicAddress}
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Teléfono"
+                  value={clinicPhone}
+                  onChangeText={setClinicPhone}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Correo de la Clínica"
+                  value={clinicEmail}
+                  onChangeText={setClinicEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  placeholderTextColor="#666"
+                />
+                <TouchableOpacity style={styles.registerButton} onPress={handleClinicSubmit}>
+                  <Text style={styles.buttonText}>Registrar Clínica</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
+                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>¿Ya tienes cuenta? Inicia Sesión</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+          <Modal
+            animationType="fade"
+            transparent={true}
+            visible={modalVisible}
+            onRequestClose={() => setModalVisible(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalText}>{modalMessage}</Text>
                 <TouchableOpacity
-                  style={styles.radioButton}
-                  onPress={() => setUserType('admin')}
+                  style={styles.modalButton}
+                  onPress={() => setModalVisible(false)}
                 >
-                  <View style={styles.radioCircle}>
-                    {userType === 'admin' && <View style={styles.selectedRb} />}
-                  </View>
-                  <Text style={styles.radioText}>Admin</Text>
+                  <Text style={styles.modalButtonText}>Aceptar</Text>
                 </TouchableOpacity>
               </View>
-              <TextInput
-                placeholder="Nombre"
-                placeholderTextColor="#666"
-                value={nombre}
-                onChangeText={setNombre}
-                style={styles.textInput}
-              />
-              <TextInput
-                placeholder="Correo"
-                placeholderTextColor="#666"
-                value={correo}
-                onChangeText={setCorreo}
-                style={styles.textInput}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              <TextInput
-                placeholder="Contraseña"
-                placeholderTextColor="#666"
-                value={contrasena}
-                onChangeText={setContrasena}
-                secureTextEntry
-                style={styles.textInput}
-              />
-              <TextInput
-                placeholder="Confirmar Contraseña"
-                placeholderTextColor="#666"
-                value={confirmarContrasena}
-                onChangeText={setConfirmarContrasena}
-                secureTextEntry
-                style={styles.textInput}
-              />
             </View>
-          ) : (
-            <View style={styles.inputContainer}>
-              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-                <Ionicons name="arrow-back" size={24} color="#007AFF" />
-              </TouchableOpacity>
-              <TextInput
-                placeholder="Nombre de la Clínica"
-                placeholderTextColor="#666"
-                value={clinicName}
-                onChangeText={setClinicName}
-                style={styles.textInput}
-              />
-              <TextInput
-                placeholder="Dirección de la Clínica"
-                placeholderTextColor="#666"
-                value={clinicAddress}
-                onChangeText={setClinicAddress}
-                style={styles.textInput}
-              />
-              <TextInput
-                placeholder="Número Telefónico"
-                placeholderTextColor="#666"
-                value={clinicPhone}
-                onChangeText={setClinicPhone}
-                style={styles.textInput}
-                keyboardType="phone-pad"
-              />
-              <TextInput
-                placeholder="Email"
-                placeholderTextColor="#666"
-                value={clinicEmail}
-                onChangeText={setClinicEmail}
-                style={styles.textInput}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.registerButton}
-            onPress={showClinicForm ? handleClinicSubmit : handleNext}
-          >
-            <Text style={styles.buttonText}>
-              {showClinicForm ? 'Crear Clínica' : userType === 'admin' ? 'Siguiente' : 'Crear Cuenta'}
-            </Text>
-          </TouchableOpacity>
-
-          {!showClinicForm && (
-            <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-              <Text style={[styles.buttonText, styles.loginButtonText]}>¿Ya tienes una cuenta? Iniciar Sesión</Text>
-            </TouchableOpacity>
-          )}
+          </Modal>
         </View>
       </View>
     </SafeAreaView>
@@ -265,7 +345,7 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     width: '90%',
-    height: 60, // Aumentado para que quepa el texto completo
+    height: 60,
     borderWidth: 1,
     borderColor: '#007AFF',
     borderRadius: 10,
@@ -277,13 +357,52 @@ const styles = StyleSheet.create({
   buttonText: {
     fontFamily: 'System',
     fontSize: 18,
-    color: '#FFFFFF', // Blanco para el botón principal
+    color: '#FFFFFF',
     textAlign: 'center',
     fontWeight: '500',
   },
-  loginButtonText: {
-    color: '#007AFF', // Azul para el botón blanco
-    fontSize: 16, // Ajustado para que quepa
+  registerButtonText: {
+    color: '#007AFF',
+    fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalText: {
+    fontFamily: 'System',
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButton: {
+    width: '50%',
+    height: 40,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontFamily: 'System',
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
 });
 
