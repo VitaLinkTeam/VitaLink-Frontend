@@ -3,16 +3,15 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, Aler
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { signupUser, getSession } from '../api/authApi'; // Ajusta la ruta según tu estructura
-import { Usuario } from '@/models/Usuario'; // Asegúrate de que el modelo esté accesible
-import { auth } from '@/services/firebaseAuth'; // Usa la instancia inicializada
+import { useAuth } from '@/context/AuthContext';
 
 const RegisterScreen = () => {
   const [nombre, setNombre] = useState('');
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
+  const [numeroTelefonico, setNumeroTelefonico] = useState('');
+  const [fotoURL, setFotoURL] = useState('');
   const [userType, setUserType] = useState<'normal' | 'admin'>('normal');
   const [showClinicForm, setShowClinicForm] = useState(false);
   const [clinicName, setClinicName] = useState('');
@@ -22,6 +21,7 @@ const RegisterScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const router = useRouter();
+  const { signup } = useAuth();
 
   const handleNext = useCallback(() => {
     if (userType === 'admin') {
@@ -29,11 +29,13 @@ const RegisterScreen = () => {
     } else {
       handleNormalUserSignup();
     }
-  }, [userType, nombre, correo, contrasena, confirmarContrasena]);
+  }, [userType, nombre, correo, contrasena, confirmarContrasena, numeroTelefonico, fotoURL]);
 
-  const handleClinicSubmit = useCallback(() => {
-    console.log('Registro de clínica:', clinicName, clinicAddress, clinicPhone, clinicEmail);
-  }, [clinicName, clinicAddress, clinicPhone, clinicEmail]);
+  const handleClinicSubmit = useCallback(async () => {
+    console.log('Registro de clínica (no enviado a API):', clinicName, clinicAddress, clinicPhone, clinicEmail);
+
+    await handleAdminUserSignup(null);
+  }, [clinicName, clinicAddress, clinicPhone, clinicEmail, correo, contrasena, numeroTelefonico, fotoURL]);
 
   const handleBack = () => {
     setShowClinicForm(false);
@@ -44,40 +46,23 @@ const RegisterScreen = () => {
   };
 
   const handleNormalUserSignup = async () => {
-    if (!nombre || !correo || !contrasena || !confirmarContrasena) {
+    if (!nombre || !correo || !contrasena || !confirmarContrasena || !numeroTelefonico) {
       setModalMessage('Por favor, completa todos los campos.');
       setModalVisible(true);
       return;
     }
-
     if (contrasena !== confirmarContrasena) {
       setModalMessage('Las contraseñas no coinciden.');
       setModalVisible(true);
       return;
     }
-
     try {
-      // ✅ Registrar en Firebase (versión Web)
-      const firebaseUserCredential = await createUserWithEmailAndPassword(
-        auth,
-        correo,
-        contrasena
-      );
-      const firebaseToken = await firebaseUserCredential.user.getIdToken();
+      const roleName = 'Paciente';
+      const clinicaId = 1;
+      const foto = fotoURL || 'https://randomuser.me/api/portraits/men/1.jpg';
+      const phone = numeroTelefonico;
 
-      // ✅ Registrar en tu backend
-      const signUpRequest = {
-        email: correo,
-        roleName: 'USER',
-        name: nombre,
-        numeroTelefonico: '',
-        fotoURL: '',
-        clinicaId: null,
-      };
-      await signupUser(firebaseToken, signUpRequest);
-
-      const sessionData = await getSession(firebaseToken);
-      console.log('Sesión creada:', sessionData);
+      await signup(correo, contrasena, roleName, clinicaId, foto, phone);
 
       setModalMessage('Usuario creado correctamente. Iniciando sesión...');
       setModalVisible(true);
@@ -85,18 +70,44 @@ const RegisterScreen = () => {
         setModalVisible(false);
         router.replace('/HomeScreen');
       }, 2000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error en registro:', error);
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === 'auth/email-already-in-use'
-      ) {
+      if (error.code === 'auth/email-already-in-use') {
         setModalMessage('El correo ya está registrado en Firebase.');
       } else {
-        setModalMessage('Error al crear el usuario. Inténtalo de nuevo.');
+        setModalMessage(error.message || 'Error al crear el usuario. Inténtalo de nuevo.');
       }
+      setModalVisible(true);
+    }
+  };
+
+  const handleAdminUserSignup = async (clinicaId: number | null) => {
+    if (!correo || !contrasena || !confirmarContrasena || !numeroTelefonico) {
+      setModalMessage('Por favor, completa todos los campos.');
+      setModalVisible(true);
+      return;
+    }
+    if (contrasena !== confirmarContrasena) {
+      setModalMessage('Las contraseñas no coinciden.');
+      setModalVisible(true);
+      return;
+    }
+    try {
+      const roleName = 'Administrador';
+      const foto = fotoURL || 'https://randomuser.me/api/portraits/men/1.jpg';
+      const phone = numeroTelefonico;
+
+      await signup(correo, contrasena, roleName, clinicaId, foto, phone);
+
+      setModalMessage('Administrador creado correctamente. Iniciando sesión...');
+      setModalVisible(true);
+      setTimeout(() => {
+        setModalVisible(false);
+        router.replace('/HomeScreen');
+      }, 2000);
+    } catch (error: any) {
+      console.error('Error en registro admin:', error);
+      setModalMessage(error.message || 'Error al crear el administrador. Inténtalo de nuevo.');
       setModalVisible(true);
     }
   };
@@ -153,6 +164,21 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
+                  placeholder="Número Telefónico"
+                  value={numeroTelefonico}
+                  onChangeText={setNumeroTelefonico}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Foto URL (opcional)"
+                  value={fotoURL}
+                  onChangeText={setFotoURL}
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
                   placeholder="Contraseña"
                   value={contrasena}
                   onChangeText={setContrasena}
@@ -195,7 +221,7 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Teléfono"
+                  placeholder="Teléfono de la Clínica"
                   value={clinicPhone}
                   onChangeText={setClinicPhone}
                   keyboardType="phone-pad"
@@ -210,8 +236,39 @@ const RegisterScreen = () => {
                   keyboardType="email-address"
                   placeholderTextColor="#666"
                 />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Número Telefónico Personal"
+                  value={numeroTelefonico}
+                  onChangeText={setNumeroTelefonico}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Foto URL (opcional)"
+                  value={fotoURL}
+                  onChangeText={setFotoURL}
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Contraseña"
+                  value={contrasena}
+                  onChangeText={setContrasena}
+                  secureTextEntry
+                  placeholderTextColor="#666"
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Confirmar Contraseña"
+                  value={confirmarContrasena}
+                  onChangeText={setConfirmarContrasena}
+                  secureTextEntry
+                  placeholderTextColor="#666"
+                />
                 <TouchableOpacity style={styles.registerButton} onPress={handleClinicSubmit}>
-                  <Text style={styles.buttonText}>Registrar Clínica</Text>
+                  <Text style={styles.buttonText}>Registrar Clínica y Usuario</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
                   <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>¿Ya tienes cuenta? Inicia Sesión</Text>

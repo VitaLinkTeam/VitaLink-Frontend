@@ -7,13 +7,40 @@ import MedicoView from "../components/MedicoView";
 import Footer from "../components/Footer";
 import AdminView from "../components/AdminView";
 
+const roleNameToRol = (roleName: string | undefined): number => {
+  switch (roleName) {
+    case "Medico":
+      return 1;
+    case "Administrador":
+      return 2;
+    case "Paciente":
+      return 3;
+    case "Asistente":
+      return 4;
+    default:
+      return 0;
+  }
+};
+
+const getNombrePorRol = (rol: number) => {
+  switch (rol) {
+    case 1: return "Dra. Rafaela Amador";
+    case 2: return "Administrador J";
+    case 3: return "Fernando Lizano"
+    case 4: return "Asistente S";
+    default: return "Usuario";
+  }
+};
 
 const HomeScreen = () => {
   const { user } = useAuth();
-  const nombre = getNombrePorRol(user?.rol ?? 0);
+
+  const rol = roleNameToRol(user?.roleName);
+
+  const nombre = getNombrePorRol(rol);
 
   const renderContentByRole = () => {
-    switch (user?.rol) {
+    switch (rol) {
       case 1: // Médico
         return <MedicoView />;
       case 3: // Paciente
@@ -22,27 +49,19 @@ const HomeScreen = () => {
       case 4: // Asistente
         return <AdminView />;
       default:
-        return <Text>Rol no reconocido</Text>;
+        return <Text style={{ padding: 20, textAlign: "center" }}>
+          Rol no reconocido: {user?.roleName || "N/A"}
+        </Text>;
     }
   };
 
-   return (
+  return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <Header nombre={nombre} />
       {renderContentByRole()}
       <Footer />
     </View>
   );
-};
-
-const getNombrePorRol = (rol: number) => {
-  switch (rol) {
-    case 1: return "Dra. Rafaela Amador";
-    case 2: return "Administrador J";
-    case 3: return "Fernando Lizano";
-    case 4: return "Asistente S";
-    default: return "Usuario";
-  }
 };
 
 export default HomeScreen;
