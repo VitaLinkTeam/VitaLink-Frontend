@@ -125,7 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       console.log("✅ Firebase login OK:", credential.user.email);
     } catch (error: any) {
-      console.error("❌ Login error:", error.message);
+      //solo para dev: console.error("❌ Login error:", error.message);
       throw error;
     }
   };

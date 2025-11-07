@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,8 +10,6 @@ const RegisterScreen = () => {
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
-  const [numeroTelefonico, setNumeroTelefonico] = useState('');
-  const [fotoURL, setFotoURL] = useState('');
   const [userType, setUserType] = useState<'normal' | 'admin'>('normal');
   const [showClinicForm, setShowClinicForm] = useState(false);
   const [clinicName, setClinicName] = useState('');
@@ -29,13 +27,7 @@ const RegisterScreen = () => {
     } else {
       handleNormalUserSignup();
     }
-  }, [userType, nombre, correo, contrasena, confirmarContrasena, numeroTelefonico, fotoURL]);
-
-  const handleClinicSubmit = useCallback(async () => {
-    console.log('Registro de clínica (no enviado a API):', clinicName, clinicAddress, clinicPhone, clinicEmail);
-
-    await handleAdminUserSignup(null);
-  }, [clinicName, clinicAddress, clinicPhone, clinicEmail, correo, contrasena, numeroTelefonico, fotoURL]);
+  }, [userType, nombre, correo, contrasena, confirmarContrasena]);
 
   const handleBack = () => {
     setShowClinicForm(false);
@@ -46,7 +38,7 @@ const RegisterScreen = () => {
   };
 
   const handleNormalUserSignup = async () => {
-    if (!nombre || !correo || !contrasena || !confirmarContrasena || !numeroTelefonico) {
+    if (!nombre || !correo || !contrasena || !confirmarContrasena) {
       setModalMessage('Por favor, completa todos los campos.');
       setModalVisible(true);
       return;
@@ -56,15 +48,18 @@ const RegisterScreen = () => {
       setModalVisible(true);
       return;
     }
+
     try {
-      const roleName = 'Paciente';
-      const clinicaId = 1;
-      const foto = fotoURL || 'https://randomuser.me/api/portraits/men/1.jpg';
-      const phone = numeroTelefonico;
+      await signup(
+        correo,
+        contrasena,
+        'Paciente',           // Rol fijo
+        1,                    // clinicaId fijo
+        'https://randomuser.me/api/portraits/lego/1.jpg', // foto por defecto
+        ''                    // teléfono vacío (opcional en backend)
+      );
 
-      await signup(correo, contrasena, roleName, clinicaId, foto, phone);
-
-      setModalMessage('Usuario creado correctamente. Iniciando sesión...');
+      setModalMessage('Paciente creado correctamente. Iniciando sesión...');
       setModalVisible(true);
       setTimeout(() => {
         setModalVisible(false);
@@ -81,8 +76,8 @@ const RegisterScreen = () => {
     }
   };
 
-  const handleAdminUserSignup = async (clinicaId: number | null) => {
-    if (!correo || !contrasena || !confirmarContrasena || !numeroTelefonico) {
+  const handleAdminUserSignup = async () => {
+    if (!correo || !contrasena || !confirmarContrasena) {
       setModalMessage('Por favor, completa todos los campos.');
       setModalVisible(true);
       return;
@@ -92,12 +87,16 @@ const RegisterScreen = () => {
       setModalVisible(true);
       return;
     }
-    try {
-      const roleName = 'Administrador';
-      const foto = fotoURL || 'https://randomuser.me/api/portraits/men/1.jpg';
-      const phone = numeroTelefonico;
 
-      await signup(correo, contrasena, roleName, clinicaId, foto, phone);
+    try {
+      await signup(
+        correo,
+        contrasena,
+        'Administrador',      // Rol administrador
+        null,                 // clinicaId null (se crea después o no aplica)
+        'https://randomuser.me/api/portraits/lego/2.jpg',
+        ''
+      );
 
       setModalMessage('Administrador creado correctamente. Iniciando sesión...');
       setModalVisible(true);
@@ -123,9 +122,11 @@ const RegisterScreen = () => {
           <Text style={styles.titleText}>
             {showClinicForm ? 'Registrar Clínica' : 'Registro'}
           </Text>
+
           <View style={styles.inputContainer}>
             {!showClinicForm ? (
               <>
+                {/* Radio buttons */}
                 <View style={styles.radioContainer}>
                   <TouchableOpacity
                     style={styles.radioButton}
@@ -134,7 +135,7 @@ const RegisterScreen = () => {
                     <View style={styles.radioCircle}>
                       {userType === 'normal' && <View style={styles.selectedRb} />}
                     </View>
-                    <Text style={styles.radioText}>Usuario</Text>
+                    <Text style={styles.radioText}>Paciente</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.radioButton}
@@ -146,9 +147,11 @@ const RegisterScreen = () => {
                     <Text style={styles.radioText}>Admin</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* Campos Paciente */}
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Nombre"
+                  placeholder="Nombre completo"
                   value={nombre}
                   onChangeText={setNombre}
                   placeholderTextColor="#666"
@@ -164,21 +167,6 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Número Telefónico"
-                  value={numeroTelefonico}
-                  onChangeText={setNumeroTelefonico}
-                  keyboardType="phone-pad"
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Foto URL (opcional)"
-                  value={fotoURL}
-                  onChangeText={setFotoURL}
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
                   placeholder="Contraseña"
                   value={contrasena}
                   onChangeText={setContrasena}
@@ -187,17 +175,23 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Confirmar Contraseña"
+                  placeholder="Confirmar contraseña"
                   value={confirmarContrasena}
                   onChangeText={setConfirmarContrasena}
                   secureTextEntry
                   placeholderTextColor="#666"
                 />
+
                 <TouchableOpacity style={styles.registerButton} onPress={handleNext}>
-                  <Text style={styles.buttonText}>{userType === 'normal' ? 'Crear usuario' : 'Siguiente'}</Text>
+                  <Text style={styles.buttonText}>
+                    {userType === 'normal' ? 'Crear Paciente' : 'Siguiente'}
+                  </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>¿Ya tienes cuenta? Inicia Sesión</Text>
+                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
+                    ¿Ya tienes cuenta? Inicia Sesión
+                  </Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -205,6 +199,8 @@ const RegisterScreen = () => {
                 <TouchableOpacity style={styles.backButton} onPress={handleBack}>
                   <Ionicons name="arrow-back" size={24} color="#007AFF" />
                 </TouchableOpacity>
+
+                {/* Campos Clínica + Admin */}
                 <TextInput
                   style={styles.textInput}
                   placeholder="Nombre de la Clínica"
@@ -238,17 +234,11 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Número Telefónico Personal"
-                  value={numeroTelefonico}
-                  onChangeText={setNumeroTelefonico}
-                  keyboardType="phone-pad"
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Foto URL (opcional)"
-                  value={fotoURL}
-                  onChangeText={setFotoURL}
+                  placeholder="Correo del Administrador"
+                  value={correo}
+                  onChangeText={setCorreo}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
                   placeholderTextColor="#666"
                 />
                 <TextInput
@@ -261,21 +251,27 @@ const RegisterScreen = () => {
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Confirmar Contraseña"
+                  placeholder="Confirmar contraseña"
                   value={confirmarContrasena}
                   onChangeText={setConfirmarContrasena}
                   secureTextEntry
                   placeholderTextColor="#666"
                 />
-                <TouchableOpacity style={styles.registerButton} onPress={handleClinicSubmit}>
-                  <Text style={styles.buttonText}>Registrar Clínica y Usuario</Text>
+
+                <TouchableOpacity style={styles.registerButton} onPress={handleAdminUserSignup}>
+                  <Text style={styles.buttonText}>Registrar Clínica y Admin</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>¿Ya tienes cuenta? Inicia Sesión</Text>
+                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
+                    ¿Ya tienes cuenta? Inicia Sesión
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
           </View>
+
+          {/* Modal de feedback */}
           <Modal
             animationType="fade"
             transparent={true}
