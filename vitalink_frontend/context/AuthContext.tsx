@@ -68,10 +68,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       if (!data.roleName) {
-        Alert.alert("Error", "Rol no configurado. Contacta soporte.");
         return;
       }
+      
       router.replace("/HomeScreen");
+      
     } catch (error: any) {
       console.error("❌ Error fetching profile FULL DETAILS:");
       console.error("Error message:", error.message);

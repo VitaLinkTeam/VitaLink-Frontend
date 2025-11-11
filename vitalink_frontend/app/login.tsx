@@ -16,7 +16,8 @@ const LoginScreen = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const router = useRouter();
-  const { login } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const { login, loading: authLoading } = useAuth();
 
   const handleLogin = async () => {
     try {
@@ -25,8 +26,9 @@ const LoginScreen = () => {
         return;
       }
 
+      setLoading(true);
+
       await login(email, password);
-      router.replace("/HomeScreen");
     } catch (error) {
       Alert.alert("Error", "Credenciales inválidas. Inténtalo de nuevo.");
     }
