@@ -26,9 +26,8 @@ const LoginScreen = () => {
         return;
       }
 
-      setLoading(true);
-
       await login(email, password);
+      router.replace("/HomeScreen");
     } catch (error) {
       Alert.alert("Error", "Credenciales inválidas. Inténtalo de nuevo.");
     }
@@ -84,24 +83,6 @@ const LoginScreen = () => {
               <Image
                 style={styles.socialIcon}
                 source={require("../assets/images/Google_Logo.png")}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={() => handleSocialLogin("Facebook")}
-            >
-              <Image
-                style={styles.socialIcon}
-                source={require("../assets/images/Facebook_Logo.png")}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={() => handleSocialLogin("Microsoft")}
-            >
-              <Image
-                style={styles.socialIcon}
-                source={require("../assets/images/Microsoft_Logo.png")}
               />
             </TouchableOpacity>
           </View>
@@ -199,7 +180,7 @@ const styles = StyleSheet.create({
   },
   socialContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     width: 150,
     marginTop: 20,
   },
