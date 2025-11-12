@@ -1,22 +1,67 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, Alert } from 'react-native';
+// RegisterScreen.tsx
+import React, { useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Modal,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';// Asegúrate de tener firebase config exportado
-import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { Picker } from '@react-native-picker/picker';
+import { useAuth } from '@/context/AuthContext';
+import axios from 'axios';
+
+// === TIPOS ===
+interface ClinicaResponse {
+  id?: number;
+  in_id?: number;
+  nombre?: string;
+}
 
 const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
+
+type UserType = 'paciente' | 'medico' | 'asistente' | 'admin';
+
+const ROLE_MAP: Record<UserType, string> = {
+  paciente: 'Paciente',
+  medico: 'Medico',
+  asistente: 'Asistente',
+  admin: 'Administrador',
+};
+
+// === ESPECIALIZACIONES ESTÁTICAS (ORDEN FIJO) ===
+const ESPECIALIZACIONES = [
+  { id: 1, nombre: 'Medicina General' },
+  { id: 2, nombre: 'Pediatría' },
+  { id: 3, nombre: 'Ginecología' },
+  { id: 4, nombre: 'Medicina Interna' },
+  { id: 5, nombre: 'Odontología' },
+  { id: 6, nombre: 'Dermatología' },
+  { id: 7, nombre: 'Oftalmología' },
+  { id: 8, nombre: 'Otorrinolaringología' },
+  { id: 9, nombre: 'Traumatología' },
+  { id: 10, nombre: 'Psicología' },
+];
 
 const RegisterScreen = () => {
   const [nombre, setNombre] = useState('');
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
-  const [userType, setUserType] = useState<'normal' | 'admin'>('normal');
+  const [especializacionId, setEspecializacionId] = useState<number | null>(null);
+  const [userType, setUserType] = useState<UserType>('paciente');
   const [showClinicForm, setShowClinicForm] = useState(false);
 
-  // Clínica
   const [clinicName, setClinicName] = useState('');
   const [clinicAddress, setClinicAddress] = useState('');
   const [clinicPhone, setClinicPhone] = useState('');
@@ -27,288 +72,339 @@ const RegisterScreen = () => {
   const router = useRouter();
   const { signup } = useAuth();
 
-  // Validaciones
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // === VALIDACIONES ===
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const validatePassword = (pass: string) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pass);
+  const validatePassword = (pass: string) =>
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pass);
 
   const validateFirstStep = () => {
     if (!nombre.trim()) return 'El nombre es obligatorio.';
-    if (!validateEmail(correo)) return 'Ingresa un correo electrónico válido.';
+    if (!validateEmail(correo)) return 'Ingresa un correo válido.';
     if (!contrasena) return 'La contraseña es obligatoria.';
     if (!validatePassword(contrasena))
-      return 'Contraseña: mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial.';
+      return 'Contraseña: 8+ caracteres, mayúscula, minúscula, número y símbolo.';
     if (contrasena !== confirmarContrasena) return 'Las contraseñas no coinciden.';
+    if (userType === 'medico' && !especializacionId)
+      return 'Selecciona una especialización.';
     return null;
   };
 
   const validateClinicStep = () => {
-    if (!clinicName.trim()) return 'El nombre de la clínica es obligatorio.';
-    if (!clinicAddress.trim()) return 'La dirección es obligatoria.';
-    if (!clinicPhone.trim()) return 'El teléfono es obligatorio.';
+    if (!clinicName.trim()) return 'Nombre de clínica obligatorio.';
+    if (!clinicAddress.trim()) return 'Dirección obligatoria.';
+    if (!clinicPhone.trim()) return 'Teléfono obligatorio.';
     if (!validateEmail(clinicEmail)) return 'Correo de clínica inválido.';
     return null;
   };
 
-  const handleNext = useCallback(async () => {
+  const handleNext = useCallback(() => {
     const error = validateFirstStep();
     if (error) {
       setModalMessage(error);
       setModalVisible(true);
       return;
     }
-
-    if (userType === 'normal') {
-      await handleNormalUserSignup();
-    } else {
+    if (userType === 'admin') {
       setShowClinicForm(true);
+    } else {
+      handleBasicUserSignup();
     }
-  }, [userType, nombre, correo, contrasena, confirmarContrasena]);
+  }, [userType, nombre, correo, contrasena, confirmarContrasena, especializacionId]);
 
-  const handleBack = () => {
-    setShowClinicForm(false);
-  };
+  const handleBack = () => setShowClinicForm(false);
 
-  const showSuccessAndRedirect = (message: string) => {
-    setModalMessage(message);
+  const showModal = (msg: string, success = false) => {
+    setModalMessage(msg);
     setModalVisible(true);
-    setTimeout(() => {
-      setModalVisible(false);
-      router.replace('/HomeScreen');
-    }, 2000);
+    if (success) {
+      setTimeout(() => {
+        setModalVisible(false);
+        router.replace('/HomeScreen');
+      }, 2000);
+    }
   };
 
-  const handleNormalUserSignup = async () => {
+  // === REGISTRO BÁSICO (Paciente, Médico, Asistente) ===
+  const handleBasicUserSignup = async () => {
     try {
-      await signup(
-        correo,
-        contrasena,
-        'Paciente',
-        1, // clínica fija para pacientes
-        'https://randomuser.me/api/portraits/lego/1.jpg',
-        '' // teléfono opcional
-      );
+      const roleName = ROLE_MAP[userType];
+      const clinicaId = userType === 'paciente' ? 1 : null;
 
-      // Opcional: enviar nombre al backend (si tu backend lo acepta)
-      // Puedes modificar tu backend para aceptar `nombre` en /signup
-      showSuccessAndRedirect('Paciente creado correctamente. Iniciando sesión...');
+      // 1. Crear usuario
+      await signup(correo, contrasena, roleName, clinicaId, 'https://randomuser.me/api/portraits/lego/1.jpg', '');
+
+      // 2. Si es médico, enviar especialización
+      if (userType === 'medico' && especializacionId) {
+        const { getAuth } = await import('firebase/auth');
+        const token = await getAuth().currentUser?.getIdToken();
+        const uid = getAuth().currentUser?.uid;
+
+        if (token && uid) {
+          await axios.put(
+            `${BASE_URL}/api/usuarios/${uid}`,
+            { especializacionId },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+      }
+
+      showModal(`${roleName} creado correctamente.`, true);
     } catch (error: any) {
       const msg = error.code === 'auth/email-already-in-use'
         ? 'Este correo ya está registrado.'
-        : 'Error al crear el usuario.';
-      setModalMessage(msg);
-      setModalVisible(true);
+        : error.response?.data?.message || error.message || 'Error al crear usuario.';
+      showModal(msg);
     }
   };
 
+  // === REGISTRO ADMIN + CLÍNICA ===
   const handleAdminUserSignup = async () => {
     const error = validateClinicStep();
     if (error) {
-      setModalMessage(error);
-      setModalVisible(true);
+      showModal(error);
       return;
     }
 
     try {
-      // 1. Crear usuario admin en Firebase + backend
-      await signup(
-        correo,
-        contrasena,
-        'Administrador',
-        null, // clinicaId null por ahora
-        'https://randomuser.me/api/portraits/lego/2.jpg',
-        ''
-      );
+      await signup(correo, contrasena, ROLE_MAP['admin'], null, 'https://randomuser.me/api/portraits/lego/2.jpg', '');
 
-      // 2. Crear clínica en el backend
-      const token = await (await import('firebase/auth')).getAuth().currentUser?.getIdToken();
-      if (!token) throw new Error("No se pudo obtener token");
+      const { getAuth } = await import('firebase/auth');
+      const token = await getAuth().currentUser?.getIdToken();
+      if (!token) throw new Error("No token");
 
-      const clinicResponse = await axios.post(
+      const clinicRes = await axios.post<ClinicaResponse>(
         `${BASE_URL}/api/clinicas`,
         {
           nombre: clinicName,
           direccion: clinicAddress,
-          telefono: clinicPhone,
+          numeroTelefonico: clinicPhone,
           email: clinicEmail,
         },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-
-      const clinicaId = clinicResponse.data.id;
-
-      // 3. Actualizar usuario con clinicaId
-      await axios.put(
-        `${BASE_URL}/api/usuarios/${(await import('firebase/auth')).getAuth().currentUser?.uid}`,
-        { clinicaId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      showSuccessAndRedirect('Clínica y Administrador creados correctamente.');
+      const clinicaId = clinicRes.data.id ?? clinicRes.data.in_id;
+      if (!clinicaId) throw new Error("No se recibió ID de clínica");
+
+      const uid = getAuth().currentUser?.uid;
+      await axios.post(
+        `${BASE_URL}/api/clinicas/asociar`,
+        { uid, clinicaId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      showModal('Clínica y Administrador creados correctamente.', true);
     } catch (error: any) {
-      console.error("Error creando admin/clínica:", error);
-      const msg = error.response?.data?.message || 'Error al crear clínica o administrador.';
-      setModalMessage(msg);
-      setModalVisible(true);
+      showModal(error.response?.data?.message || 'Error al crear clínica o administrador.');
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.mainRectangle}>
-          <Image
-            style={styles.logo}
-            source={require('../assets/images/medical_logo_placeholder.png')}
-          />
-          <Text style={styles.titleText}>
-            {showClinicForm ? 'Registrar Clínica' : 'Registro'}
-          </Text>
-
-          <View style={styles.inputContainer}>
-            {!showClinicForm ? (
-              <>
-                <View style={styles.radioContainer}>
-                  <TouchableOpacity
-                    style={styles.radioButton}
-                    onPress={() => setUserType('normal')}
-                  >
-                    <View style={styles.radioCircle}>
-                      {userType === 'normal' && <View style={styles.selectedRb} />}
-                    </View>
-                    <Text style={styles.radioText}>Paciente</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.radioButton}
-                    onPress={() => setUserType('admin')}
-                  >
-                    <View style={styles.radioCircle}>
-                      {userType === 'admin' && <View style={styles.selectedRb} />}
-                    </View>
-                    <Text style={styles.radioText}>Admin</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Nombre completo"
-                  value={nombre}
-                  onChangeText={setNombre}
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Correo electrónico"
-                  value={correo}
-                  onChangeText={setCorreo}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Contraseña"
-                  value={contrasena}
-                  onChangeText={setContrasena}
-                  secureTextEntry
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Confirmar contraseña"
-                  value={confirmarContrasena}
-                  onChangeText={setConfirmarContrasena}
-                  secureTextEntry
-                  placeholderTextColor="#666"
-                />
-
-                <TouchableOpacity style={styles.registerButton} onPress={handleNext}>
-                  <Text style={styles.buttonText}>
-                    {userType === 'normal' ? 'Crear Paciente' : 'Siguiente'}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-                  <Ionicons name="arrow-back" size={24} color="#007AFF" />
-                </TouchableOpacity>
-
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Nombre de la Clínica"
-                  value={clinicName}
-                  onChangeText={setClinicName}
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Dirección"
-                  value={clinicAddress}
-                  onChangeText={setClinicAddress}
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Teléfono de la Clínica"
-                  value={clinicPhone}
-                  onChangeText={setClinicPhone}
-                  keyboardType="phone-pad"
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Correo de la Clínica"
-                  value={clinicEmail}
-                  onChangeText={setClinicEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  placeholderTextColor="#666"
-                />
-
-                <TouchableOpacity style={styles.registerButton} onPress={handleAdminUserSignup}>
-                  <Text style={styles.buttonText}>Registrar Clínica y Admin</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-              <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
-                ¿Ya tienes cuenta? Inicia Sesión
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <Modal
-            animationType="fade"
-            transparent={true}
-            visible={modalVisible}
-            onRequestClose={() => setModalVisible(false)}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView
+            ref={scrollViewRef}
+            contentContainerStyle={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalText}>{modalMessage}</Text>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalButtonText}>Aceptar</Text>
+            <View style={styles.mainRectangle}>
+              <Image
+                style={styles.logo}
+                source={require('../assets/images/medical_logo_placeholder.png')}
+              />
+              <Text style={styles.titleText}>
+                {showClinicForm ? 'Registrar Clínica' : 'Registro'}
+              </Text>
+
+              <View style={styles.inputContainer}>
+                {!showClinicForm ? (
+                  <>
+                    {/* 4 RADIO BUTTONS */}
+                    <View style={styles.radioContainer}>
+                      <TouchableOpacity
+                        style={styles.radioButton}
+                        onPress={() => setUserType('paciente')}
+                      >
+                        <View style={styles.radioCircle}>
+                          {userType === 'paciente' && <View style={styles.selectedRb} />}
+                        </View>
+                        <Text style={styles.radioText}>Paciente</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.radioButton}
+                        onPress={() => setUserType('medico')}
+                      >
+                        <View style={styles.radioCircle}>
+                          {userType === 'medico' && <View style={styles.selectedRb} />}
+                        </View>
+                        <Text style={styles.radioText}>Médico</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.radioContainer}>
+                      <TouchableOpacity
+                        style={styles.radioButton}
+                        onPress={() => setUserType('asistente')}
+                      >
+                        <View style={styles.radioCircle}>
+                          {userType === 'asistente' && <View style={styles.selectedRb} />}
+                        </View>
+                        <Text style={styles.radioText}>Asistente</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.radioButton}
+                        onPress={() => setUserType('admin')}
+                      >
+                        <View style={styles.radioCircle}>
+                          {userType === 'admin' && <View style={styles.selectedRb} />}
+                        </View>
+                        <Text style={styles.radioText}>Admin</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Nombre completo"
+                      placeholderTextColor="#666"
+                      value={nombre}
+                      onChangeText={setNombre}
+                      autoCapitalize="words"
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Correo electrónico"
+                      placeholderTextColor="#666"
+                      value={correo}
+                      onChangeText={setCorreo}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Contraseña"
+                      placeholderTextColor="#666"
+                      value={contrasena}
+                      onChangeText={setContrasena}
+                      secureTextEntry
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Confirmar contraseña"
+                      placeholderTextColor="#666"
+                      value={confirmarContrasena}
+                      onChangeText={setConfirmarContrasena}
+                      secureTextEntry
+                    />
+
+                    {/* SELECTOR DE ESPECIALIZACIÓN (TEXTO NEGRO) */}
+                    {userType === 'medico' && (
+                      <View style={styles.pickerContainer}>
+                        <Picker
+                          selectedValue={especializacionId}
+                          onValueChange={(itemValue) => setEspecializacionId(itemValue as number)}
+                          style={styles.picker}
+                          dropdownIconColor="#007AFF"
+                          mode="dropdown"
+                        >
+                          <Picker.Item label="Selecciona una especialización" value={null} color="#999" />
+                          {ESPECIALIZACIONES.map((esp) => (
+                            <Picker.Item
+                              key={esp.id}
+                              label={esp.nombre}
+                              value={esp.id}
+                              color="#000"
+                            />
+                          ))}
+                        </Picker>
+                      </View>
+                    )}
+
+                    <TouchableOpacity style={styles.registerButton} onPress={handleNext}>
+                      <Text style={styles.buttonText}>
+                        {userType === 'admin' ? 'Siguiente' : 'Crear Cuenta'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                      <Ionicons name="arrow-back" size={24} color="#007AFF" />
+                    </TouchableOpacity>
+
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Nombre de la Clínica"
+                      placeholderTextColor="#666"
+                      value={clinicName}
+                      onChangeText={setClinicName}
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Dirección"
+                      placeholderTextColor="#666"
+                      value={clinicAddress}
+                      onChangeText={setClinicAddress}
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Teléfono de la Clínica"
+                      placeholderTextColor="#666"
+                      value={clinicPhone}
+                      onChangeText={setClinicPhone}
+                      keyboardType="phone-pad"
+                    />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Correo de la Clínica"
+                      placeholderTextColor="#666"
+                      value={clinicEmail}
+                      onChangeText={setClinicEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+
+                    <TouchableOpacity style={styles.registerButton} onPress={handleAdminUserSignup}>
+                      <Text style={styles.buttonText}>Registrar Clínica y Admin</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
+                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
+                    ¿Ya tienes cuenta? Inicia Sesión
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </Modal>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+
+      <Modal animationType="fade" transparent={true} visible={modalVisible}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalText}>{modalMessage}</Text>
+            <TouchableOpacity style={styles.modalButton} onPress={() => setModalVisible(false)}>
+              <Text style={styles.modalButtonText}>Aceptar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
-// Estilos (sin cambios importantes)
+// === ESTILOS (PICKER NEGRO + CORRECCIONES) ===
 const styles = StyleSheet.create({
-  // ... (mantén todos los estilos que ya tenías)
   safeArea: { flex: 1, backgroundColor: '#007AFF' },
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
   mainRectangle: {
     width: '90%',
     maxWidth: 320,
@@ -322,12 +418,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 8,
+    marginVertical: 20,
   },
   logo: { width: 120, height: 120, marginBottom: 15 },
-  titleText: { fontSize: 24, color: '#333', marginBottom: 20, fontWeight: '600' },
+  titleText: { fontFamily: 'System', fontSize: 24, color: '#333', marginBottom: 20, fontWeight: '600' },
   inputContainer: { width: '100%', alignItems: 'center', paddingHorizontal: 5 },
   backButton: { alignSelf: 'flex-start', marginLeft: 5, marginBottom: 15 },
-  radioContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginBottom: 20 },
+  radioContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginBottom: 10 },
   radioButton: { flexDirection: 'row', alignItems: 'center' },
   radioCircle: {
     height: 22,
@@ -347,11 +444,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     marginBottom: 15,
+    fontFamily: 'System',
     fontSize: 16,
     color: '#333',
     paddingHorizontal: 15,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+  },
+  pickerContainer: {
+    width: '90%',
+    height: 50,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    marginBottom: 15,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  picker: {
+    color: '#000',
+    fontSize: 16,
+    paddingHorizontal: 15,
   },
   registerButton: {
     width: '90%',
@@ -373,7 +487,7 @@ const styles = StyleSheet.create({
     marginTop: 15,
     backgroundColor: '#FFFFFF',
   },
-  buttonText: { fontSize: 18, color: '#FFFFFF', fontWeight: '500' },
+  buttonText: { fontFamily: 'System', fontSize: 18, color: '#FFFFFF', textAlign: 'center', fontWeight: '500' },
   registerButtonText: { color: '#007AFF', fontSize: 16 },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: {
