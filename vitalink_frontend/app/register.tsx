@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext';// Asegúrate de tener firebase config exportado
+import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
 const RegisterScreen = () => {
   const [nombre, setNombre] = useState('');
@@ -12,101 +15,141 @@ const RegisterScreen = () => {
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
   const [userType, setUserType] = useState<'normal' | 'admin'>('normal');
   const [showClinicForm, setShowClinicForm] = useState(false);
+
+  // Clínica
   const [clinicName, setClinicName] = useState('');
   const [clinicAddress, setClinicAddress] = useState('');
   const [clinicPhone, setClinicPhone] = useState('');
   const [clinicEmail, setClinicEmail] = useState('');
+
   const [modalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const router = useRouter();
   const { signup } = useAuth();
 
-  const handleNext = useCallback(() => {
-    if (userType === 'admin') {
-      setShowClinicForm(true);
+  // Validaciones
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validatePassword = (pass: string) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pass);
+
+  const validateFirstStep = () => {
+    if (!nombre.trim()) return 'El nombre es obligatorio.';
+    if (!validateEmail(correo)) return 'Ingresa un correo electrónico válido.';
+    if (!contrasena) return 'La contraseña es obligatoria.';
+    if (!validatePassword(contrasena))
+      return 'Contraseña: mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial.';
+    if (contrasena !== confirmarContrasena) return 'Las contraseñas no coinciden.';
+    return null;
+  };
+
+  const validateClinicStep = () => {
+    if (!clinicName.trim()) return 'El nombre de la clínica es obligatorio.';
+    if (!clinicAddress.trim()) return 'La dirección es obligatoria.';
+    if (!clinicPhone.trim()) return 'El teléfono es obligatorio.';
+    if (!validateEmail(clinicEmail)) return 'Correo de clínica inválido.';
+    return null;
+  };
+
+  const handleNext = useCallback(async () => {
+    const error = validateFirstStep();
+    if (error) {
+      setModalMessage(error);
+      setModalVisible(true);
+      return;
+    }
+
+    if (userType === 'normal') {
+      await handleNormalUserSignup();
     } else {
-      handleNormalUserSignup();
+      setShowClinicForm(true);
     }
   }, [userType, nombre, correo, contrasena, confirmarContrasena]);
 
   const handleBack = () => {
     setShowClinicForm(false);
-    setClinicName('');
-    setClinicAddress('');
-    setClinicPhone('');
-    setClinicEmail('');
+  };
+
+  const showSuccessAndRedirect = (message: string) => {
+    setModalMessage(message);
+    setModalVisible(true);
+    setTimeout(() => {
+      setModalVisible(false);
+      router.replace('/HomeScreen');
+    }, 2000);
   };
 
   const handleNormalUserSignup = async () => {
-    if (!nombre || !correo || !contrasena || !confirmarContrasena) {
-      setModalMessage('Por favor, completa todos los campos.');
-      setModalVisible(true);
-      return;
-    }
-    if (contrasena !== confirmarContrasena) {
-      setModalMessage('Las contraseñas no coinciden.');
-      setModalVisible(true);
-      return;
-    }
-
     try {
       await signup(
         correo,
         contrasena,
-        'Paciente',           // Rol fijo
-        1,                    // clinicaId fijo
-        'https://randomuser.me/api/portraits/lego/1.jpg', // foto por defecto
-        ''                    // teléfono vacío (opcional en backend)
+        'Paciente',
+        1, // clínica fija para pacientes
+        'https://randomuser.me/api/portraits/lego/1.jpg',
+        '' // teléfono opcional
       );
 
-      setModalMessage('Paciente creado correctamente. Iniciando sesión...');
-      setModalVisible(true);
-      setTimeout(() => {
-        setModalVisible(false);
-        router.replace('/HomeScreen');
-      }, 2000);
+      // Opcional: enviar nombre al backend (si tu backend lo acepta)
+      // Puedes modificar tu backend para aceptar `nombre` en /signup
+      showSuccessAndRedirect('Paciente creado correctamente. Iniciando sesión...');
     } catch (error: any) {
-      console.error('Error en registro:', error);
-      if (error.code === 'auth/email-already-in-use') {
-        setModalMessage('El correo ya está registrado en Firebase.');
-      } else {
-        setModalMessage(error.message || 'Error al crear el usuario. Inténtalo de nuevo.');
-      }
+      const msg = error.code === 'auth/email-already-in-use'
+        ? 'Este correo ya está registrado.'
+        : 'Error al crear el usuario.';
+      setModalMessage(msg);
       setModalVisible(true);
     }
   };
 
   const handleAdminUserSignup = async () => {
-    if (!correo || !contrasena || !confirmarContrasena) {
-      setModalMessage('Por favor, completa todos los campos.');
-      setModalVisible(true);
-      return;
-    }
-    if (contrasena !== confirmarContrasena) {
-      setModalMessage('Las contraseñas no coinciden.');
+    const error = validateClinicStep();
+    if (error) {
+      setModalMessage(error);
       setModalVisible(true);
       return;
     }
 
     try {
+      // 1. Crear usuario admin en Firebase + backend
       await signup(
         correo,
         contrasena,
-        'Administrador',      // Rol administrador
-        null,                 // clinicaId null (se crea después o no aplica)
+        'Administrador',
+        null, // clinicaId null por ahora
         'https://randomuser.me/api/portraits/lego/2.jpg',
         ''
       );
 
-      setModalMessage('Administrador creado correctamente. Iniciando sesión...');
-      setModalVisible(true);
-      setTimeout(() => {
-        setModalVisible(false);
-        router.replace('/HomeScreen');
-      }, 2000);
+      // 2. Crear clínica en el backend
+      const token = await (await import('firebase/auth')).getAuth().currentUser?.getIdToken();
+      if (!token) throw new Error("No se pudo obtener token");
+
+      const clinicResponse = await axios.post(
+        `${BASE_URL}/api/clinicas`,
+        {
+          nombre: clinicName,
+          direccion: clinicAddress,
+          telefono: clinicPhone,
+          email: clinicEmail,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      const clinicaId = clinicResponse.data.id;
+
+      // 3. Actualizar usuario con clinicaId
+      await axios.put(
+        `${BASE_URL}/api/usuarios/${(await import('firebase/auth')).getAuth().currentUser?.uid}`,
+        { clinicaId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      showSuccessAndRedirect('Clínica y Administrador creados correctamente.');
     } catch (error: any) {
-      console.error('Error en registro admin:', error);
-      setModalMessage(error.message || 'Error al crear el administrador. Inténtalo de nuevo.');
+      console.error("Error creando admin/clínica:", error);
+      const msg = error.response?.data?.message || 'Error al crear clínica o administrador.';
+      setModalMessage(msg);
       setModalVisible(true);
     }
   };
@@ -126,7 +169,6 @@ const RegisterScreen = () => {
           <View style={styles.inputContainer}>
             {!showClinicForm ? (
               <>
-                {/* Radio buttons */}
                 <View style={styles.radioContainer}>
                   <TouchableOpacity
                     style={styles.radioButton}
@@ -148,7 +190,6 @@ const RegisterScreen = () => {
                   </TouchableOpacity>
                 </View>
 
-                {/* Campos Paciente */}
                 <TextInput
                   style={styles.textInput}
                   placeholder="Nombre completo"
@@ -187,12 +228,6 @@ const RegisterScreen = () => {
                     {userType === 'normal' ? 'Crear Paciente' : 'Siguiente'}
                   </Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
-                    ¿Ya tienes cuenta? Inicia Sesión
-                  </Text>
-                </TouchableOpacity>
               </>
             ) : (
               <>
@@ -200,7 +235,6 @@ const RegisterScreen = () => {
                   <Ionicons name="arrow-back" size={24} color="#007AFF" />
                 </TouchableOpacity>
 
-                {/* Campos Clínica + Admin */}
                 <TextInput
                   style={styles.textInput}
                   placeholder="Nombre de la Clínica"
@@ -232,46 +266,20 @@ const RegisterScreen = () => {
                   keyboardType="email-address"
                   placeholderTextColor="#666"
                 />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Correo del Administrador"
-                  value={correo}
-                  onChangeText={setCorreo}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Contraseña"
-                  value={contrasena}
-                  onChangeText={setContrasena}
-                  secureTextEntry
-                  placeholderTextColor="#666"
-                />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Confirmar contraseña"
-                  value={confirmarContrasena}
-                  onChangeText={setConfirmarContrasena}
-                  secureTextEntry
-                  placeholderTextColor="#666"
-                />
 
                 <TouchableOpacity style={styles.registerButton} onPress={handleAdminUserSignup}>
                   <Text style={styles.buttonText}>Registrar Clínica y Admin</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
-                  <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
-                    ¿Ya tienes cuenta? Inicia Sesión
-                  </Text>
-                </TouchableOpacity>
               </>
             )}
+
+            <TouchableOpacity style={styles.loginButton} onPress={() => router.push('/login')}>
+              <Text style={[styles.registerButtonText, { fontWeight: 'bold', textAlign: 'center' }]}>
+                ¿Ya tienes cuenta? Inicia Sesión
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Modal de feedback */}
           <Modal
             animationType="fade"
             transparent={true}
@@ -296,17 +304,11 @@ const RegisterScreen = () => {
   );
 };
 
+// Estilos (sin cambios importantes)
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#007AFF',
-  },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
+  // ... (mantén todos los estilos que ya tenías)
+  safeArea: { flex: 1, backgroundColor: '#007AFF' },
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
   mainRectangle: {
     width: '90%',
     maxWidth: 320,
@@ -321,38 +323,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 8,
   },
-  logo: {
-    width: 120,
-    height: 120,
-    marginBottom: 15,
-  },
-  titleText: {
-    fontFamily: 'System',
-    fontSize: 24,
-    color: '#333',
-    marginBottom: 20,
-    fontWeight: '600',
-  },
-  inputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    paddingHorizontal: 5,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    marginLeft: 5,
-    marginBottom: 15,
-  },
-  radioContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '80%',
-    marginBottom: 20,
-  },
-  radioButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  logo: { width: 120, height: 120, marginBottom: 15 },
+  titleText: { fontSize: 24, color: '#333', marginBottom: 20, fontWeight: '600' },
+  inputContainer: { width: '100%', alignItems: 'center', paddingHorizontal: 5 },
+  backButton: { alignSelf: 'flex-start', marginLeft: 5, marginBottom: 15 },
+  radioContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginBottom: 20 },
+  radioButton: { flexDirection: 'row', alignItems: 'center' },
   radioCircle: {
     height: 22,
     width: 22,
@@ -363,24 +339,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  selectedRb: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#007AFF',
-  },
-  radioText: {
-    fontSize: 18,
-    color: '#333',
-    fontWeight: '500',
-  },
+  selectedRb: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#007AFF' },
+  radioText: { fontSize: 18, color: '#333', fontWeight: '500' },
   textInput: {
     width: '90%',
     height: 50,
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     marginBottom: 15,
-    fontFamily: 'System',
     fontSize: 16,
     color: '#333',
     paddingHorizontal: 15,
@@ -407,23 +373,9 @@ const styles = StyleSheet.create({
     marginTop: 15,
     backgroundColor: '#FFFFFF',
   },
-  buttonText: {
-    fontFamily: 'System',
-    fontSize: 18,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  registerButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
+  buttonText: { fontSize: 18, color: '#FFFFFF', fontWeight: '500' },
+  registerButtonText: { color: '#007AFF', fontSize: 16 },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: {
     width: '80%',
     backgroundColor: '#FFFFFF',
@@ -436,27 +388,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
-  modalText: {
-    fontFamily: 'System',
-    fontSize: 16,
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalButton: {
-    width: '50%',
-    height: 40,
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontFamily: 'System',
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
+  modalText: { fontSize: 16, color: '#333', textAlign: 'center', marginBottom: 20 },
+  modalButton: { width: '50%', height: 40, backgroundColor: '#007AFF', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  modalButtonText: { fontSize: 16, color: '#FFFFFF', fontWeight: '500' },
 });
 
 export default RegisterScreen;
