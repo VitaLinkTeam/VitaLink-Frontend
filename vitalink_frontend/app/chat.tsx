@@ -14,6 +14,8 @@ import { GiftedChat, IMessage, Bubble, Send, InputToolbar } from 'react-native-g
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
+import Header from "../components/Header";
+import Footer from "../components/Footer";
 
 const BOT_USER = {
   _id: 2,
@@ -116,6 +118,7 @@ const ChatScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Header nombre={"nombre"} />
       {/* Botón Volver */}
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Ionicons name="arrow-back" size={26} color="#007AFF" />
@@ -153,6 +156,7 @@ const ChatScreen = () => {
           isLoadingEarlier={false}
         />
       </KeyboardAvoidingView>
+      <Footer />
     </SafeAreaView>
   );
 };
@@ -164,7 +168,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    top: 50,
+    top: 70,
     left: 20,
     zIndex: 10,
     backgroundColor: 'rgba(255,255,255,0.9)',
@@ -177,7 +181,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   header: {
-    paddingTop: 60,
+    paddingTop: 10,
     paddingHorizontal: 20,
     paddingBottom: 15,
     borderBottomWidth: 1,
