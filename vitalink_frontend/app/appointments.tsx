@@ -16,37 +16,41 @@ import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
 import { SafeAreaView } from "react-native-safe-area-context";
 import axios from "axios";
+import { getAuth } from "firebase/auth";
 
 const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
-
-// Datos quemados
-const specialties = ["Consulta general", "Gastroenterologia", "Oftalmologia"];
-
-const doctorsBySpecialty: Record<string, { name: string; clinic: string }[]> = {
-  "Consulta general": [
-    { name: "Dr. Ramírez", clinic: "Clinica Central" },
-    { name: "Dr. Fernández", clinic: "Clinica Norte" },
-  ],
-  "Gastroenterologia": [
-    { name: "Dra. Amador", clinic: "Clinica Central" },
-    { name: "Dr. Méndez", clinic: "Clinica Sur" },
-  ],
-  "Oftalmologia": [
-    { name: "Dr. López", clinic: "Clinica Norte" },
-    { name: "Dr. Torres", clinic: "Clinica Sur" },
-  ],
-};
 
 const AppointmentsScreen = () => {
   const { user } = useAuth();
 
-  // === ESTADO DEL NOMBRE REAL ===
+  // === ESTADOS ===
   const [nombreReal, setNombreReal] = useState<string>("Cargando...");
   const [loadingName, setLoadingName] = useState(true);
+  const [clinicas, setClinicas] = useState<any[]>([]);
+  const [especialidades, setEspecialidades] = useState<any[]>([]);
+  const [doctores, setDoctores] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [selectedClinic, setSelectedClinic] = useState<any>(null);
+  const [selectedSpecialty, setSelectedSpecialty] = useState<number | null>(null);
+  const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedTime, setSelectedTime] = useState<string>("");
+  const [horariosDisponibles, setHorariosDisponibles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // === ROL ===
   const roleName = user?.roleName;
   const isPaciente = roleName === "Paciente";
+  const isMedico = roleName === "Médico";
+  const isAdmin = roleName === "Administrador";
+  const isAsistente = roleName === "Asistente";
+
+  // === AUTENTICACIÓN ===
+  const getAuthHeaders = async () => {
+    const token = await getAuth().currentUser?.getIdToken();
+    if (!token) throw new Error("No token");
+    return { Authorization: `Bearer ${token}` };
+  };
 
   // === CARGAR NOMBRE REAL ===
   useEffect(() => {
@@ -58,14 +62,8 @@ const AppointmentsScreen = () => {
       }
 
       try {
-        const { getAuth } = await import("firebase/auth");
-        const token = await getAuth().currentUser?.getIdToken();
-        if (!token) throw new Error("No token");
-
-        const response = await axios.get(`${BASE_URL}/api/auth/getname`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
+        const headers = await getAuthHeaders();
+        const response = await axios.get(`${BASE_URL}/api/auth/getname`, { headers });
         setNombreReal(response.data.nombre || "Paciente");
       } catch (error) {
         console.warn("Error al obtener nombre:", error);
@@ -78,52 +76,206 @@ const AppointmentsScreen = () => {
     fetchNombre();
   }, [user?.uid]);
 
-  // === ESTADO DE CITAS ===
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [selectedTime, setSelectedTime] = useState<string>("06:00");
-  const [appointments, setAppointments] = useState<
-    { id: number; date: string; title: string; doctor: string; clinic: string; canceled: boolean }[]
-  >([]);
-  const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null);
-  const [selectedDoctor, setSelectedDoctor] = useState<{ name: string; clinic: string } | null>(null);
+  // === CARGAR CLÍNICAS DEL PACIENTE ===
+  useEffect(() => {
+    const fetchClinicas = async () => {
+      if (!isPaciente) return;
+      try {
+        const headers = await getAuthHeaders();
+        const response = await axios.get(`${BASE_URL}/api/usuario/clinicas`, { headers });
+        setClinicas(response.data || []);
+      } catch (error: any) {
+        console.warn("Error al cargar clínicas:", error);
+        Alert.alert("Error", "No se pudieron cargar las clínicas.");
+      }
+    };
+
+    fetchClinicas();
+  }, [isPaciente]);
+
+  // === CARGAR ESPECIALIDADES POR CLÍNICA ===
+  useEffect(() => {
+    const fetchEspecialidades = async () => {
+      if (!isPaciente || !selectedClinic) {
+        setEspecialidades([]);
+        setSelectedSpecialty(null);
+        return;
+      }
+      try {
+        const headers = await getAuthHeaders();
+        const response = await axios.get(
+          `${BASE_URL}/api/usuario/especialidades?clinicaId=${selectedClinic.id}`,
+          { headers }
+        );
+        setEspecialidades(response.data || []);
+        setSelectedSpecialty(null);
+      } catch (error: any) {
+        console.warn("Error al cargar especialidades:", error);
+        Alert.alert("Error", "No se pudieron cargar las especialidades.");
+      }
+    };
+
+    fetchEspecialidades();
+  }, [isPaciente, selectedClinic]);
+
+  // === CARGAR DOCTORES POR CLÍNICA + ESPECIALIDAD ===
+  useEffect(() => {
+    const fetchDoctores = async () => {
+      if (!isPaciente || !selectedClinic || !selectedSpecialty) {
+        setDoctores([]);
+        setSelectedDoctor(null);
+        return;
+      }
+
+      try {
+        const headers = await getAuthHeaders();
+        const response = await axios.get(
+          `${BASE_URL}/api/doctores/${user?.uid}/horarios/${selectedClinic.id}/especialidad?especialidadId=${selectedSpecialty}`,
+          { headers }
+        );
+
+        const doctoresRaw = response.data || [];
+
+        // === AÑADIR NOMBRE REAL A CADA DOCTOR ===
+        const doctoresConNombre = await Promise.all(
+          doctoresRaw.map(async (doc: any) => {
+            try {
+              const nameResponse = await axios.get(
+                `${BASE_URL}/api/auth/getname/${doc.uid}`,
+                { headers }
+              );
+              return {
+                ...doc,
+                nombre: nameResponse.data.nombre || doc.email.split("@")[0], // fallback
+              };
+            } catch (err) {
+              console.warn(`Error al obtener nombre para ${doc.uid}:`, err);
+              return {
+                ...doc,
+                nombre: doc.email.split("@")[0], // fallback si falla
+              };
+            }
+          })
+        );
+
+        setDoctores(doctoresConNombre);
+        setSelectedDoctor(null);
+      } catch (error: any) {
+        console.warn("Error al cargar doctores:", error);
+        Alert.alert("Error", "No se pudieron cargar los doctores.");
+        setDoctores([]);
+      }
+    };
+
+    fetchDoctores();
+  }, [isPaciente, selectedClinic, selectedSpecialty, user?.uid]);
+
+  // === CARGAR DISPONIBILIDAD DEL DOCTOR ===
+  useEffect(() => {
+    const fetchDisponibilidad = async () => {
+      if (!isPaciente || !selectedClinic || !selectedSpecialty || !selectedDoctor) {
+        setHorariosDisponibles([]);
+        setSelectedDate("");
+        setSelectedTime("");
+        return;
+      }
+      try {
+        const headers = await getAuthHeaders();
+        const response = await axios.get(
+          `${BASE_URL}/api/doctores/${selectedDoctor.uid}/horarios/${selectedClinic.id}/disponibilidad?especialidadId=${selectedSpecialty}`,
+          { headers }
+        );
+        setHorariosDisponibles(response.data || []);
+        setSelectedDate("");
+        setSelectedTime("");
+      } catch (error: any) {
+        console.warn("Error al cargar disponibilidad:", error);
+        setHorariosDisponibles([]);
+      }
+    };
+
+    fetchDisponibilidad();
+  }, [isPaciente, selectedClinic, selectedSpecialty, selectedDoctor]);
 
   // === CARGAR CITAS ===
   useEffect(() => {
     const loadAppointments = async () => {
       try {
+        const headers = await getAuthHeaders();
+        let endpoint = "";
+        if (isPaciente) {
+          endpoint = `${BASE_URL}/api/citas/activas/paciente`;
+        } else if (isMedico) {
+          endpoint = `${BASE_URL}/api/citas/confirmadas/doctor`;
+        } else if (isAdmin || isAsistente) {
+          endpoint = `${BASE_URL}/api/citas/admin`;
+        }
+
+        if (endpoint) {
+          const response = await axios.get(endpoint, { headers });
+          const citas = response.data.map((cita: any) => ({
+            id: cita.id,
+            date: `${cita.fecha} ${cita.horaInicio}`,
+            title: cita.especialidad || "Consulta",
+            doctor: cita.nombreDoctor || "Sin doctor",
+            clinic: cita.nombreClinica || "Sin clínica",
+            canceled: cita.estado === "Cancelada",
+          }));
+          setAppointments(citas);
+          await AsyncStorage.setItem("patientAppointments", JSON.stringify(citas));
+        }
+      } catch (error) {
+        console.warn("Error al cargar citas:", error);
         const saved = await AsyncStorage.getItem("patientAppointments");
         if (saved) {
           const parsed = JSON.parse(saved);
-          const updated = parsed.map((appt: any) => ({
+          setAppointments(parsed.map((appt: any) => ({
             ...appt,
             canceled: appt.canceled || false,
-          }));
-          setAppointments(updated);
+          })));
         }
-      } catch (error) {
-        console.log("Error al cargar citas:", error);
       }
     };
-    loadAppointments();
-  }, []);
 
-  // === GUARDAR CITAS ===
-  const saveAppointments = async (newAppointments: any[]) => {
-    try {
-      await AsyncStorage.setItem("patientAppointments", JSON.stringify(newAppointments));
-    } catch (error) {
-      console.log("Error al guardar citas:", error);
-    }
-  };
+    loadAppointments();
+  }, [isPaciente, isMedico, isAdmin, isAsistente]);
+
+  // === MARCAR FECHAS EN CALENDARIO ===
+  const markedDates = (() => {
+    const marked: any = {};
+
+    // Citas existentes
+    appointments.forEach((appt) => {
+      const date = appt.date.split(" ")[0];
+      if (!marked[date]) {
+        marked[date] = { marked: true, dotColor: appt.canceled ? "#FF3B30" : "#007AFF" };
+      }
+    });
+
+    // Disponibilidad del doctor
+    horariosDisponibles.forEach((slot: any) => {
+      const date = slot.fecha;
+      if (!marked[date]) {
+        marked[date] = { marked: true, dotColor: "#34C759" };
+      } else if (marked[date].dotColor === "#007AFF") {
+        marked[date].dotColor = "#34C759";
+      }
+    });
+
+    return marked;
+  })();
+
+  // === HORAS DISPONIBLES EN LA FECHA SELECCIONADA ===
+  const availableTimes = selectedDate
+    ? horariosDisponibles
+        .filter((slot: any) => slot.fecha === selectedDate)
+        .map((slot: any) => slot.horaInicio)
+        .sort()
+    : [];
 
   // === AGENDAR CITA ===
-  const addAppointment = () => {
-    if (!isPaciente) {
-      Alert.alert("Acceso denegado", "Solo los pacientes pueden agendar citas.");
-      return;
-    }
-
-    if (!selectedDate || !selectedSpecialty || !selectedDoctor) {
+  const addAppointment = async () => {
+    if (!selectedClinic || !selectedSpecialty || !selectedDoctor || !selectedDate || !selectedTime) {
       Alert.alert("Error", "Completa todos los campos.");
       return;
     }
@@ -134,41 +286,75 @@ const AppointmentsScreen = () => {
       return;
     }
 
-    const newAppointment = {
-      id: Date.now(),
-      date: appointmentDateTime,
-      title: selectedSpecialty,
-      doctor: selectedDoctor.name,
-      clinic: selectedDoctor.clinic,
-      canceled: false,
-    };
+    try {
+      setLoading(true);
+      const headers = await getAuthHeaders();
 
-    const updated = [...appointments, newAppointment];
-    setAppointments(updated);
-    saveAppointments(updated);
+      const citaRequest = {
+        pacienteUid: user?.uid,
+        doctorUid: selectedDoctor.uid,
+        clinicaId: selectedClinic.id,
+        estadoCitaId: 1, // Pendiente
+        fecha: selectedDate,
+        horaInicio: selectedTime,
+        horaFin: selectedTime, // Ajustar según duración real
+        observaciones: "",
+      };
 
-    Alert.alert(
-      "Cita agendada",
-      `Con ${selectedDoctor.name} en ${selectedDoctor.clinic}\n${appointmentDateTime}`,
-      [{ text: "OK", onPress: resetSelection }]
-    );
+      const response = await axios.post(`${BASE_URL}/api/citas`, citaRequest, { headers });
+
+      const newAppointment = {
+        id: response.data.id,
+        date: appointmentDateTime,
+        title: especialidades.find((e) => e.id === selectedSpecialty)?.nombre || "Consulta",
+        doctor: selectedDoctor.nombre,
+        clinic: selectedClinic.nombre,
+        canceled: false,
+      };
+
+      const updated = [...appointments, newAppointment];
+      setAppointments(updated);
+      await AsyncStorage.setItem("patientAppointments", JSON.stringify(updated));
+
+      Alert.alert(
+        "Cita agendada",
+        `Con ${selectedDoctor.nombre} en ${selectedClinic.nombre}\n${appointmentDateTime}`,
+        [{ text: "OK", onPress: resetSelection }]
+      );
+    } catch (error: any) {
+      console.warn("Error al agendar cita:", error);
+      Alert.alert("Error", error.response?.data?.message || "No se pudo agendar la cita.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // === CANCELAR CITA ===
-  const cancelAppointment = (id: number) => {
-    if (!isPaciente) return;
+  const cancelAppointment = async (id: number) => {
+    if (!isPaciente) {
+      Alert.alert("Acceso denegado", "Solo los pacientes pueden cancelar citas.");
+      return;
+    }
 
     Alert.alert("Cancelar Cita", "¿Estás seguro?", [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Confirmar",
         onPress: async () => {
-          const updated = appointments.map((appt) =>
-            appt.id === id ? { ...appt, canceled: true } : appt
-          );
-          setAppointments(updated);
-          await saveAppointments(updated);
-          Alert.alert("Cancelada", "La cita fue cancelada.");
+          try {
+            const headers = await getAuthHeaders();
+            await axios.delete(`${BASE_URL}/api/citas/${id}`, { headers });
+
+            const updated = appointments.map((appt) =>
+              appt.id === id ? { ...appt, canceled: true } : appt
+            );
+            setAppointments(updated);
+            await AsyncStorage.setItem("patientAppointments", JSON.stringify(updated));
+            Alert.alert("Cancelada", "La cita fue cancelada.");
+          } catch (error) {
+            console.warn("Error al cancelar cita:", error);
+            Alert.alert("Error", "No se pudo cancelar la cita.");
+          }
         },
       },
     ]);
@@ -176,52 +362,19 @@ const AppointmentsScreen = () => {
 
   // === RESETEAR SELECCIÓN ===
   const resetSelection = () => {
+    setSelectedClinic(null);
     setSelectedSpecialty(null);
     setSelectedDoctor(null);
     setSelectedDate("");
-    setSelectedTime("06:00");
+    setSelectedTime("");
   };
 
-  // === CAMBIO DE ESPECIALIDAD ===
-  const handleSpecialtyChange = (value: string | null) => {
-    if (!isPaciente) return;
-    setSelectedSpecialty(value);
-    setSelectedDoctor(null);
-    setSelectedDate("");
-    setSelectedTime("06:00");
-  };
-
-  // === CAMBIO DE DOCTOR ===
-  const handleDoctorChange = (value: string | null) => {
-    if (!isPaciente || !selectedSpecialty) return;
-    if (!value) {
-      setSelectedDoctor(null);
-      setSelectedDate("");
-      setSelectedTime("06:00");
-      return;
-    }
-    const doctor = doctorsBySpecialty[selectedSpecialty].find((d) => d.name === value);
-    if (doctor) {
-      setSelectedDoctor(doctor);
-      setSelectedDate("");
-      setSelectedTime("06:00");
-    }
-  };
-
-  // === MARCAR FECHAS ===
-  const markedDates = appointments.reduce((acc, app) => {
-    const dateOnly = app.date.split(" ")[0];
-    acc[dateOnly] = { marked: true, dotColor: "#007AFF" };
-    return acc;
-  }, {} as any);
-
-  const isSelectionComplete = selectedSpecialty && selectedDoctor;
+  const isSelectionComplete = selectedClinic && selectedSpecialty && selectedDoctor;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <Header nombre={loadingName ? "Cargando..." : nombreReal} />
 
-      {/* CONTENEDOR FLEXIBLE */}
       <View style={styles.contentContainer}>
         <ScrollView
           style={styles.scrollView}
@@ -233,50 +386,105 @@ const AppointmentsScreen = () => {
             <>
               <View style={styles.mainCard}>
                 <Text style={styles.title}>Agenda tu Cita Médica</Text>
-                <Text style={styles.subtitle}>Selecciona especialidad y doctor</Text>
+                <Text style={styles.subtitle}>Selecciona clínica, especialidad y doctor</Text>
               </View>
 
-              {/* ESPECIALIDAD */}
-              <View style={styles.selectionCard}>
-                <Text style={styles.sectionTitle}>1. Especialidad</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={selectedSpecialty}
-                    onValueChange={handleSpecialtyChange}
-                    style={styles.picker}
-                    dropdownIconColor="#007AFF"
-                  >
-                    <Picker.Item label="-- Seleccione --" value={null} color="#999" />
-                    {specialties.map((spec) => (
-                      <Picker.Item key={spec} label={spec} value={spec} color="#333" />
-                    ))}
-                  </Picker>
-                </View>
-                {selectedSpecialty && (
-                  <View style={styles.selectionIndicator}>
-                    <View style={styles.dotSelected} />
-                    <Text style={styles.indicatorText}>Seleccionada</Text>
+              {/* CLÍNICA */}
+              {clinicas.length > 0 && (
+                <View style={styles.selectionCard}>
+                  <Text style={styles.sectionTitle}>1. Clínica</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedClinic?.id || null}
+                      onValueChange={(value) => {
+                        const clinic = clinicas.find((c) => c.id === value);
+                        setSelectedClinic(clinic || null);
+                        setSelectedSpecialty(null);
+                        setSelectedDoctor(null);
+                        setSelectedDate("");
+                      }}
+                      style={styles.picker}
+                      dropdownIconColor="#007AFF"
+                      enabled={!loading}
+                    >
+                      <Picker.Item label="-- Seleccione clínica --" value={null} color="#999" />
+                      {clinicas.map((clinica) => (
+                        <Picker.Item
+                          key={clinica.id}
+                          label={clinica.nombre}
+                          value={clinica.id}
+                          color="#333"
+                        />
+                      ))}
+                    </Picker>
                   </View>
-                )}
-              </View>
+                  {selectedClinic && (
+                    <View style={styles.selectionIndicator}>
+                      <View style={styles.dotSelected} />
+                      <Text style={styles.indicatorText}>Seleccionada</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* ESPECIALIDAD */}
+              {selectedClinic && (
+                <View style={styles.selectionCard}>
+                  <Text style={styles.sectionTitle}>2. Especialidad</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedSpecialty}
+                      onValueChange={(value) => {
+                        setSelectedSpecialty(value);
+                        setSelectedDoctor(null);
+                        setSelectedDate("");
+                      }}
+                      style={styles.picker}
+                      dropdownIconColor="#007AFF"
+                      enabled={!loading}
+                    >
+                      <Picker.Item label="-- Seleccione --" value={null} color="#999" />
+                      {especialidades.map((esp) => (
+                        <Picker.Item
+                          key={esp.id}
+                          label={esp.nombre}
+                          value={esp.id}
+                          color="#333"
+                        />
+                      ))}
+                    </Picker>
+                  </View>
+                  {selectedSpecialty && (
+                    <View style={styles.selectionIndicator}>
+                      <View style={styles.dotSelected} />
+                      <Text style={styles.indicatorText}>Seleccionada</Text>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* DOCTOR */}
               {selectedSpecialty && (
                 <View style={styles.selectionCard}>
-                  <Text style={styles.sectionTitle}>2. Doctor</Text>
+                  <Text style={styles.sectionTitle}>3. Doctor</Text>
                   <View style={styles.pickerContainer}>
                     <Picker
-                      selectedValue={selectedDoctor?.name || null}
-                      onValueChange={handleDoctorChange}
+                      selectedValue={selectedDoctor?.uid || null}
+                      onValueChange={(value) => {
+                        const doc = doctores.find((d) => d.uid === value);
+                        setSelectedDoctor(doc || null);
+                        setSelectedDate("");
+                      }}
                       style={styles.picker}
                       dropdownIconColor="#007AFF"
+                      enabled={!loading}
                     >
                       <Picker.Item label="-- Seleccione --" value={null} color="#999" />
-                      {doctorsBySpecialty[selectedSpecialty].map((doc) => (
+                      {doctores.map((doc) => (
                         <Picker.Item
-                          key={doc.name}
-                          label={`${doc.name} - ${doc.clinic}`}
-                          value={doc.name}
+                          key={doc.uid}
+                          label={doc.nombre}
+                          value={doc.uid}
                           color="#333"
                         />
                       ))}
@@ -291,10 +499,10 @@ const AppointmentsScreen = () => {
                 </View>
               )}
 
-              {/* CALENDARIO */}
-              {isSelectionComplete && (
+              {/* CALENDARIO Y HORAS */}
+              {selectedDoctor && (
                 <View style={styles.calendarCard}>
-                  <Text style={styles.sectionTitle}>3. Fecha y Hora</Text>
+                  <Text style={styles.sectionTitle}>4. Fecha y Hora</Text>
                   <View style={styles.calendarContainer}>
                     <Calendar
                       minDate={new Date().toISOString().split("T")[0]}
@@ -306,13 +514,14 @@ const AppointmentsScreen = () => {
                         arrowColor: "#007AFF",
                       }}
                       style={styles.calendar}
+                      disabled={loading}
                     />
                   </View>
 
-                  {selectedDate && (
+                  {selectedDate && availableTimes.length > 0 && (
                     <View style={styles.dateSelectionCard}>
                       <Text style={styles.selectedDate}>Fecha: {selectedDate}</Text>
-                      <Text style={styles.label}>Hora:</Text>
+                      <Text style={styles.label}>Hora disponible:</Text>
                       <View style={styles.pickerContainer}>
                         <Picker
                           selectedValue={selectedTime}
@@ -320,23 +529,33 @@ const AppointmentsScreen = () => {
                           style={styles.picker}
                           dropdownIconColor="#007AFF"
                         >
-                          {Array.from({ length: 33 }, (_, i) => {
-                            const hour = 6 + Math.floor(i / 2);
-                            const minute = i % 2 === 0 ? "00" : "30";
-                            const time = `${hour.toString().padStart(2, "0")}:${minute}`;
-                            return <Picker.Item key={time} label={time} value={time} color="#333" />;
-                          })}
+                          {availableTimes.map((time) => (
+                            <Picker.Item key={time} label={time} value={time} color="#333" />
+                          ))}
                         </Picker>
                       </View>
+
                       <View style={styles.actionButtons}>
-                        <TouchableOpacity style={styles.addButton} onPress={addAppointment}>
-                          <Text style={styles.addButtonText}>Agendar</Text>
+                        <TouchableOpacity
+                          style={[styles.addButton, loading && styles.disabledButton]}
+                          onPress={addAppointment}
+                          disabled={loading}
+                        >
+                          <Text style={styles.addButtonText}>
+                            {loading ? "Agendando..." : "Agendar Cita"}
+                          </Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.resetButton} onPress={resetSelection}>
                           <Text style={styles.resetButtonText}>Cambiar</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
+                  )}
+
+                  {selectedDate && availableTimes.length === 0 && (
+                    <Text style={{ textAlign: "center", color: "#999", marginTop: 10 }}>
+                      No hay horarios disponibles en esta fecha.
+                    </Text>
                   )}
                 </View>
               )}
@@ -349,18 +568,40 @@ const AppointmentsScreen = () => {
                     data={appointments}
                     keyExtractor={(item) => item.id.toString()}
                     renderItem={({ item }) => (
-                      <View style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}>
+                      <View
+                        style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
+                      >
                         <View style={styles.appointmentInfo}>
-                          <Text style={[styles.appointmentSpecialty, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentSpecialty,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.title}
                           </Text>
-                          <Text style={[styles.appointmentDoctor, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentDoctor,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.doctor}
                           </Text>
-                          <Text style={[styles.appointmentClinic, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentClinic,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.clinic}
                           </Text>
-                          <Text style={[styles.appointmentDate, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentDate,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.date}
                           </Text>
                         </View>
@@ -402,18 +643,40 @@ const AppointmentsScreen = () => {
                     data={appointments}
                     keyExtractor={(item) => item.id.toString()}
                     renderItem={({ item }) => (
-                      <View style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}>
+                      <View
+                        style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
+                      >
                         <View style={styles.appointmentInfo}>
-                          <Text style={[styles.appointmentSpecialty, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentSpecialty,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.title}
                           </Text>
-                          <Text style={[styles.appointmentDoctor, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentDoctor,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.doctor}
                           </Text>
-                          <Text style={[styles.appointmentClinic, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentClinic,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.clinic}
                           </Text>
-                          <Text style={[styles.appointmentDate, item.canceled && styles.canceledText]}>
+                          <Text
+                            style={[
+                              styles.appointmentDate,
+                              item.canceled && styles.canceledText,
+                            ]}
+                          >
                             {item.date}
                           </Text>
                         </View>
@@ -432,12 +695,12 @@ const AppointmentsScreen = () => {
   );
 };
 
-// === ESTILOS (MISMO LAYOUT QUE DEPENDENTS) ===
+// === ESTILOS ===
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
   contentContainer: { flex: 1 },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 20 },
+  scrollContent: { padding: 20, paddingBottom: 120 },
   mainCard: { backgroundColor: "#fff", marginBottom: 12, padding: 24, borderRadius: 20, alignItems: "center" },
   selectionCard: { backgroundColor: "#fff", marginBottom: 12, padding: 20, borderRadius: 20 },
   calendarCard: { backgroundColor: "#fff", marginBottom: 12, padding: 20, borderRadius: 20 },
@@ -458,6 +721,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 16, fontWeight: "600", marginBottom: 5, color: "#333" },
   actionButtons: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 12 },
   addButton: { flex: 1, backgroundColor: "#007AFF", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+  disabledButton: { backgroundColor: "#A0C4FF", opacity: 0.7 },
   addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   resetButton: { flex: 1, borderWidth: 1, borderColor: "#007AFF", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
   resetButtonText: { color: "#007AFF", fontWeight: "600", fontSize: 16 },
