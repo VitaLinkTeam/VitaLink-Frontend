@@ -9,8 +9,20 @@ const Footer = () => {
   const router = useRouter();
   const pathname = usePathname();
 
+  const roleNameToRol = (roleName: string | undefined): number => {
+  switch (roleName) {
+    case "Medico": return 1;
+    case "Administrador": return 2;
+    case "Paciente": return 3;
+    case "Asistente": return 4;
+    default: return 0;
+  }
+};
+
+const rol = roleNameToRol(user?.roleName);
+
   const tabs =
-    user?.rol === 1
+    rol === 1
       ? [
           { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
           { icon: "calendar-outline", label: "Citas", route: "/appointments" },
@@ -18,7 +30,7 @@ const Footer = () => {
           { icon: "people-outline", label: "Pacientes", route: "/patients" },
           { icon: "person-outline", label: "Perfil", route: "/profile" },
         ]
-      : user?.rol === 2 || user?.rol === 4
+      : rol === 2 || rol === 4
       ? [
           { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
           { icon: "calendar-outline", label: "Citas", route: "/appointments" },
