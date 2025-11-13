@@ -170,7 +170,7 @@ const AppointmentsScreen = () => {
     fetchDoctores();
   }, [isPaciente, selectedClinic, selectedSpecialty, user?.uid]);
 
-  // === CARGAR DISPONIBILIDAD DEL DOCTOR ===
+    // === CARGAR DISPONIBILIDAD DEL DOCTOR ===
   useEffect(() => {
     const fetchDisponibilidad = async () => {
       if (!isPaciente || !selectedClinic || !selectedSpecialty || !selectedDoctor) {
@@ -179,17 +179,34 @@ const AppointmentsScreen = () => {
         setSelectedTime("");
         return;
       }
+
       try {
         const headers = await getAuthHeaders();
         const response = await axios.get(
           `${BASE_URL}/api/doctores/${selectedDoctor.uid}/horarios/${selectedClinic.id}/disponibilidad?especialidadId=${selectedSpecialty}`,
           { headers }
         );
-        setHorariosDisponibles(response.data || []);
+
+        const rawSlots = response.data || [];
+
+        const normalizedSlots = rawSlots.map((slot: any) => {
+          if (!slot.hora_inicio) {
+            console.warn("Slot sin hora_inicio:", slot);
+            return null;
+          }
+          return {
+            ...slot,
+            hora_inicio: String(slot.hora_inicio).trim(),
+            hora_fin: slot.hora_fin ? String(slot.hora_fin).trim() : null,
+            fecha: String(slot.fecha).trim(),
+          };
+        }).filter(Boolean);
+
+        setHorariosDisponibles(normalizedSlots);
         setSelectedDate("");
         setSelectedTime("");
       } catch (error: any) {
-        console.warn("Error al cargar disponibilidad:", error);
+        console.warn("Error al cargar disponibilidad:", error.response?.data || error);
         setHorariosDisponibles([]);
       }
     };
@@ -269,8 +286,13 @@ const AppointmentsScreen = () => {
   const availableTimes = selectedDate
     ? horariosDisponibles
         .filter((slot: any) => slot.fecha === selectedDate)
-        .map((slot: any) => slot.horaInicio)
+        .map((slot: any) => {
+          const hora = slot.hora_inicio;
+          return hora ? hora.slice(0, 5) : null; // "08:00:00" → "08:00"
+        })
+        .filter(Boolean)
         .sort()
+        .filter((time, index, self) => self.indexOf(time) === index) // eliminar duplicados
     : [];
 
   // === AGENDAR CITA ===
@@ -290,18 +312,42 @@ const AppointmentsScreen = () => {
       setLoading(true);
       const headers = await getAuthHeaders();
 
+      // === OBTENER NOMBRE + UID DEL PACIENTE (ya lo tienes, pero aseguramos uid) ===
+      let pacienteUid = user?.uid;
+      if (!pacienteUid) {
+        Alert.alert("Error", "No se pudo obtener tu ID de usuario.");
+        return;
+      }
+
+      // === CALCULAR HORA FIN (1 hora después) ===
+      const [hours, minutes] = selectedTime.split(":").map(Number);
+      const date = new Date();
+      date.setHours(hours);
+      date.setMinutes(minutes);
+      date.setMinutes(date.getMinutes() + 60); // +1 hora
+
+      const horaFin = `${date.getHours().toString().padStart(2, "0")}:${date
+        .getMinutes()
+        .toString()
+        .padStart(2, "0")}`;
+
+      // === DATOS PARA EL BACKEND ===
       const citaRequest = {
-        pacienteUid: user?.uid,
+        pacienteUid,
         doctorUid: selectedDoctor.uid,
         clinicaId: selectedClinic.id,
         estadoCitaId: 1, // Pendiente
         fecha: selectedDate,
         horaInicio: selectedTime,
-        horaFin: selectedTime, // Ajustar según duración real
+        horaFin,
         observaciones: "",
       };
 
+      console.log("ENVIANDO CITA:", citaRequest); // DEBUG
+
       const response = await axios.post(`${BASE_URL}/api/citas`, citaRequest, { headers });
+
+      const citaId = response.data?.id || response.data?.citaId || Date.now();
 
       const newAppointment = {
         id: response.data.id,
@@ -317,13 +363,14 @@ const AppointmentsScreen = () => {
       await AsyncStorage.setItem("patientAppointments", JSON.stringify(updated));
 
       Alert.alert(
-        "Cita agendada",
-        `Con ${selectedDoctor.nombre} en ${selectedClinic.nombre}\n${appointmentDateTime}`,
+        "¡Cita agendada!",
+        `Con el Dr. ${selectedDoctor.nombre}\n${selectedClinic.nombre}\n${selectedDate} ${selectedTime} - ${horaFin}`,
         [{ text: "OK", onPress: resetSelection }]
       );
     } catch (error: any) {
-      console.warn("Error al agendar cita:", error);
-      Alert.alert("Error", error.response?.data?.message || "No se pudo agendar la cita.");
+      console.warn("Error al agendar cita:", error.response?.data || error);
+      const msg = error.response?.data?.message || "No se pudo agendar la cita.";
+      Alert.alert("Error", msg);
     } finally {
       setLoading(false);
     }
@@ -566,7 +613,7 @@ const AppointmentsScreen = () => {
                   <Text style={styles.sectionTitle}>Mis Citas</Text>
                   <FlatList
                     data={appointments}
-                    keyExtractor={(item) => item.id.toString()}
+                    keyExtractor={(item) => String(item.id || Math.random())}
                     renderItem={({ item }) => (
                       <View
                         style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
@@ -641,7 +688,7 @@ const AppointmentsScreen = () => {
                   <Text style={styles.sectionTitle}>Citas Agendadas</Text>
                   <FlatList
                     data={appointments}
-                    keyExtractor={(item) => item.id.toString()}
+                    keyExtractor={(item) => String(item.id || Math.random())}
                     renderItem={({ item }) => (
                       <View
                         style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
