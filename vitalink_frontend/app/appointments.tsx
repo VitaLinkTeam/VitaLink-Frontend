@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
+// app/appointments.tsx
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   FlatList,
+  TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { Picker } from "@react-native-picker/picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
@@ -37,22 +37,26 @@ const AppointmentsScreen = () => {
   const [selectedTime, setSelectedTime] = useState<string>("");
   const [horariosDisponibles, setHorariosDisponibles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingCitas, setLoadingCitas] = useState(false);
 
-  // === ROL ===
+  // === CACHE DE ESPECIALIDADES ===
+  const doctorSpecialtyCache = useRef<Map<string, string>>(new Map());
+
+  // === ROLES ===
   const roleName = user?.roleName;
   const isPaciente = roleName === "Paciente";
   const isMedico = roleName === "Médico";
   const isAdmin = roleName === "Administrador";
   const isAsistente = roleName === "Asistente";
 
-  // === AUTENTICACIÓN ===
+  // === AUTH HEADERS ===
   const getAuthHeaders = async () => {
     const token = await getAuth().currentUser?.getIdToken();
     if (!token) throw new Error("No token");
     return { Authorization: `Bearer ${token}` };
   };
 
-  // === CARGAR NOMBRE REAL ===
+  // === CARGAR NOMBRE ===
   useEffect(() => {
     const fetchNombre = async () => {
       if (!user?.uid) {
@@ -60,240 +64,295 @@ const AppointmentsScreen = () => {
         setLoadingName(false);
         return;
       }
-
       try {
         const headers = await getAuthHeaders();
-        const response = await axios.get(`${BASE_URL}/api/auth/getname`, { headers });
-        setNombreReal(response.data.nombre || "Paciente");
-      } catch (error) {
-        console.warn("Error al obtener nombre:", error);
+        const res = await axios.get(`${BASE_URL}/api/auth/getname`, { headers });
+        setNombreReal(res.data.nombre || "Paciente");
+      } catch {
         setNombreReal(user?.nombre || "Usuario");
       } finally {
         setLoadingName(false);
       }
     };
-
     fetchNombre();
   }, [user?.uid]);
 
-  // === CARGAR CLÍNICAS DEL PACIENTE ===
+  // === CARGAR CLÍNICAS ===
   useEffect(() => {
+    if (!isPaciente) return;
     const fetchClinicas = async () => {
-      if (!isPaciente) return;
       try {
         const headers = await getAuthHeaders();
-        const response = await axios.get(`${BASE_URL}/api/usuario/clinicas`, { headers });
-        setClinicas(response.data || []);
-      } catch (error: any) {
-        console.warn("Error al cargar clínicas:", error);
+        const res = await axios.get(`${BASE_URL}/api/usuario/clinicas`, { headers });
+        setClinicas(Array.isArray(res.data) ? res.data : []);
+      } catch (error) {
+        console.error("Error cargando clínicas:", error);
         Alert.alert("Error", "No se pudieron cargar las clínicas.");
+        setClinicas([]);
       }
     };
-
     fetchClinicas();
   }, [isPaciente]);
 
-  // === CARGAR ESPECIALIDADES POR CLÍNICA ===
+  // === CARGAR ESPECIALIDADES ===
   useEffect(() => {
+    if (!isPaciente || !selectedClinic) {
+      setEspecialidades([]);
+      setSelectedSpecialty(null);
+      return;
+    }
     const fetchEspecialidades = async () => {
-      if (!isPaciente || !selectedClinic) {
-        setEspecialidades([]);
-        setSelectedSpecialty(null);
-        return;
-      }
       try {
         const headers = await getAuthHeaders();
-        const response = await axios.get(
+        const res = await axios.get(
           `${BASE_URL}/api/usuario/especialidades?clinicaId=${selectedClinic.id}`,
           { headers }
         );
-        setEspecialidades(response.data || []);
-        setSelectedSpecialty(null);
-      } catch (error: any) {
-        console.warn("Error al cargar especialidades:", error);
+        setEspecialidades(Array.isArray(res.data) ? res.data : []);
+      } catch {
         Alert.alert("Error", "No se pudieron cargar las especialidades.");
+        setEspecialidades([]);
       }
     };
-
     fetchEspecialidades();
   }, [isPaciente, selectedClinic]);
 
-  // === CARGAR DOCTORES POR CLÍNICA + ESPECIALIDAD ===
+  // === CARGAR DOCTORES (SIN DUPLICADOS) ===
   useEffect(() => {
+    if (!isPaciente || !selectedClinic || !selectedSpecialty) {
+      setDoctores([]);
+      setSelectedDoctor(null);
+      return;
+    }
     const fetchDoctores = async () => {
-      if (!isPaciente || !selectedClinic || !selectedSpecialty) {
-        setDoctores([]);
-        setSelectedDoctor(null);
-        return;
-      }
-
       try {
         const headers = await getAuthHeaders();
-        const response = await axios.get(
+        const res = await axios.get(
           `${BASE_URL}/api/doctores/${user?.uid}/horarios/${selectedClinic.id}/especialidad?especialidadId=${selectedSpecialty}`,
           { headers }
         );
+        const doctoresRaw = Array.isArray(res.data) ? res.data : [];
 
-        const doctoresRaw = response.data || [];
-
-        // === AÑADIR NOMBRE REAL A CADA DOCTOR ===
+        const uniqueMap = new Map();
         const doctoresConNombre = await Promise.all(
           doctoresRaw.map(async (doc: any) => {
+            if (!doc?.uid || uniqueMap.has(doc.uid)) return null;
+            uniqueMap.set(doc.uid, true);
+
             try {
-              const nameResponse = await axios.get(
-                `${BASE_URL}/api/auth/getname/${doc.uid}`,
-                { headers }
-              );
-              return {
-                ...doc,
-                nombre: nameResponse.data.nombre || doc.email.split("@")[0], // fallback
-              };
-            } catch (err) {
-              console.warn(`Error al obtener nombre para ${doc.uid}:`, err);
-              return {
-                ...doc,
-                nombre: doc.email.split("@")[0], // fallback si falla
-              };
+              const nameRes = await axios.get(`${BASE_URL}/api/auth/getname/${doc.uid}`, { headers });
+              return { ...doc, nombre: nameRes.data.nombre || doc.email?.split("@")[0] || "Doctor" };
+            } catch {
+              return { ...doc, nombre: doc.email?.split("@")[0] || "Doctor" };
             }
           })
         );
 
-        setDoctores(doctoresConNombre);
-        setSelectedDoctor(null);
-      } catch (error: any) {
-        console.warn("Error al cargar doctores:", error);
+        setDoctores(doctoresConNombre.filter(Boolean));
+      } catch {
         Alert.alert("Error", "No se pudieron cargar los doctores.");
         setDoctores([]);
       }
     };
-
     fetchDoctores();
   }, [isPaciente, selectedClinic, selectedSpecialty, user?.uid]);
 
-    // === CARGAR DISPONIBILIDAD DEL DOCTOR ===
+  // === CARGAR DISPONIBILIDAD ===
   useEffect(() => {
+    if (!isPaciente || !selectedClinic || !selectedSpecialty || !selectedDoctor) {
+      setHorariosDisponibles([]);
+      setSelectedDate("");
+      setSelectedTime("");
+      return;
+    }
     const fetchDisponibilidad = async () => {
-      if (!isPaciente || !selectedClinic || !selectedSpecialty || !selectedDoctor) {
-        setHorariosDisponibles([]);
-        setSelectedDate("");
-        setSelectedTime("");
-        return;
-      }
-
       try {
         const headers = await getAuthHeaders();
-        const response = await axios.get(
+        const res = await axios.get(
           `${BASE_URL}/api/doctores/${selectedDoctor.uid}/horarios/${selectedClinic.id}/disponibilidad?especialidadId=${selectedSpecialty}`,
           { headers }
         );
-
-        const rawSlots = response.data || [];
-
-        const normalizedSlots = rawSlots.map((slot: any) => {
-          if (!slot.hora_inicio) {
-            console.warn("Slot sin hora_inicio:", slot);
-            return null;
-          }
-          return {
+        const data = Array.isArray(res.data) ? res.data : [];
+        const normalized = data
+          .map((slot: any) => ({
             ...slot,
-            hora_inicio: String(slot.hora_inicio).trim(),
-            hora_fin: slot.hora_fin ? String(slot.hora_fin).trim() : null,
-            fecha: String(slot.fecha).trim(),
-          };
-        }).filter(Boolean);
-
-        setHorariosDisponibles(normalizedSlots);
-        setSelectedDate("");
-        setSelectedTime("");
-      } catch (error: any) {
-        console.warn("Error al cargar disponibilidad:", error.response?.data || error);
+            hora_inicio: String(slot.hora_inicio || "").trim(),
+            fecha: String(slot.fecha || "").trim(),
+          }))
+          .filter((s: any) => s.hora_inicio && s.fecha);
+        setHorariosDisponibles(normalized);
+      } catch {
         setHorariosDisponibles([]);
       }
     };
-
     fetchDisponibilidad();
   }, [isPaciente, selectedClinic, selectedSpecialty, selectedDoctor]);
 
-  // === CARGAR CITAS ===
+  // === PRE-CARGAR ESPECIALIDADES DE DOCTORES DE CITAS ===
+  const preloadDoctorSpecialties = async (citasRaw: any[], headers: any) => {
+    const doctorUids = [...new Set(citasRaw.map(c => c.va_FK_doctor_uid).filter(Boolean))];
+    if (doctorUids.length === 0) return;
+
+    for (const uid of doctorUids) {
+      if (doctorSpecialtyCache.current.has(uid)) continue;
+
+      let found = false;
+      for (const clinica of clinicas) {
+        if (found) break;
+        try {
+          const espRes = await axios.get(
+            `${BASE_URL}/api/usuario/especialidades?clinicaId=${clinica.id}`,
+            { headers }
+          );
+          const especialidadesLista = Array.isArray(espRes.data) ? espRes.data : [];
+
+          for (const esp of especialidadesLista) {
+            try {
+              const docRes = await axios.get(
+                `${BASE_URL}/api/doctores/${uid}/horarios/${clinica.id}/especialidad?especialidadId=${esp.id}`,
+                { headers }
+              );
+              const doctoresEnEspecialidad = Array.isArray(docRes.data) ? docRes.data : [];
+              const doctorEncontrado = doctoresEnEspecialidad.find((d: any) => d.uid === uid);
+              if (doctorEncontrado) {
+                doctorSpecialtyCache.current.set(uid, doctorEncontrado.especialidad || "Consulta");
+                found = true;
+                break;
+              }
+            } catch {
+              continue;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (!found) {
+        doctorSpecialtyCache.current.set(uid, "Consulta");
+      }
+    }
+  };
+
+  // === CARGAR CITAS CON CACHE ===
   useEffect(() => {
     const loadAppointments = async () => {
+      if (!user?.uid || !isPaciente) return;
+
+      setLoadingCitas(true);
       try {
         const headers = await getAuthHeaders();
-        let endpoint = "";
-        if (isPaciente) {
-          endpoint = `${BASE_URL}/api/citas/activas/paciente`;
-        } else if (isMedico) {
-          endpoint = `${BASE_URL}/api/citas/confirmadas/doctor`;
-        } else if (isAdmin || isAsistente) {
-          endpoint = `${BASE_URL}/api/citas/admin`;
+        const endpoint = `${BASE_URL}/api/citas/paciente/${user.uid}`;
+        const res = await axios.get(endpoint, { headers });
+        const citasRaw = Array.isArray(res.data) ? res.data : [];
+
+        if (citasRaw.length === 0) {
+          setAppointments([]);
+          setLoadingCitas(false);
+          return;
         }
 
-        if (endpoint) {
-          const response = await axios.get(endpoint, { headers });
-          const citas = response.data.map((cita: any) => ({
-            id: cita.id,
-            date: `${cita.fecha} ${cita.horaInicio}`,
-            title: cita.especialidad || "Consulta",
-            doctor: cita.nombreDoctor || "Sin doctor",
-            clinic: cita.nombreClinica || "Sin clínica",
-            canceled: cita.estado === "Cancelada",
-          }));
-          setAppointments(citas);
-          await AsyncStorage.setItem("patientAppointments", JSON.stringify(citas));
-        }
+        // PRE-CARGAR ESPECIALIDADES
+        await preloadDoctorSpecialties(citasRaw, headers);
+
+        const citasConNombres = await Promise.all(
+          citasRaw.map(async (c: any) => {
+            let doctorName = "Sin doctor";
+            let clinicName = "Sin clínica";
+            let specialtyName = doctorSpecialtyCache.current.get(c.va_FK_doctor_uid) || "Consulta";
+
+            try {
+              if (c.va_FK_doctor_uid) {
+                const doctorRes = await axios.get(`${BASE_URL}/api/auth/getname/${c.va_FK_doctor_uid}`, { headers });
+                doctorName = doctorRes.data.nombre || "Doctor desconocido";
+              }
+              if (c.in_FK_clinica) {
+                const clinicRes = await axios.get(`${BASE_URL}/api/clinicas/${c.in_FK_clinica}`, { headers });
+                clinicName = clinicRes.data.nombre || "Clínica desconocada";
+              }
+            } catch (err) {
+              console.warn("Error al obtener datos de cita:", err);
+            }
+
+            return {
+              id: c.in_id,
+              date: `${c.ti_fecha || ""} ${c.ti_hora_inicio || ""}`.trim(),
+              title: specialtyName,
+              doctor: doctorName,
+              clinic: clinicName,
+              canceled: c.in_FK_estado_cita === 2,
+            };
+          })
+        );
+
+        setAppointments(citasConNombres);
       } catch (error) {
         console.warn("Error al cargar citas:", error);
-        const saved = await AsyncStorage.getItem("patientAppointments");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          setAppointments(parsed.map((appt: any) => ({
-            ...appt,
-            canceled: appt.canceled || false,
-          })));
-        }
+        setAppointments([]);
+      } finally {
+        setLoadingCitas(false);
       }
     };
 
-    loadAppointments();
-  }, [isPaciente, isMedico, isAdmin, isAsistente]);
+    if (isPaciente && clinicas.length > 0) {
+      loadAppointments();
+    }
+  }, [isPaciente, user?.uid, clinicas]);
 
-  // === MARCAR FECHAS EN CALENDARIO ===
-  const markedDates = (() => {
-    const marked: any = {};
+  // === FORMATEAR FECHA ===
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr + "T00:00:00");
+      return date.toLocaleDateString("es-ES", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return "Fecha inválida";
+    }
+  };
 
-    // Citas existentes
+  const formatTime = (timeStr: string) => {
+    return (timeStr || "").slice(0, 5) || "--:--";
+  };
+
+  // === MARCAR CALENDARIO ===
+  const markedDates = useMemo(() => {
+    const marked: { [key: string]: any } = {};
+
     appointments.forEach((appt) => {
-      const date = appt.date.split(" ")[0];
-      if (!marked[date]) {
-        marked[date] = { marked: true, dotColor: appt.canceled ? "#FF3B30" : "#007AFF" };
-      }
+      const dateStr = appt.date?.split(" ")?.[0];
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+
+      marked[dateStr] = {
+        marked: true,
+        dotColor: appt.canceled ? "#FF3B30" : "#007AFF",
+      };
     });
 
-    // Disponibilidad del doctor
-    horariosDisponibles.forEach((slot: any) => {
-      const date = slot.fecha;
-      if (!marked[date]) {
-        marked[date] = { marked: true, dotColor: "#34C759" };
-      } else if (marked[date].dotColor === "#007AFF") {
-        marked[date].dotColor = "#34C759";
+    horariosDisponibles.forEach((slot) => {
+      const dateStr = slot.fecha?.trim();
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+
+      if (!marked[dateStr]) {
+        marked[dateStr] = { marked: true, dotColor: "#34C759" };
       }
     });
 
     return marked;
-  })();
+  }, [appointments, horariosDisponibles]);
 
-  // === HORAS DISPONIBLES EN LA FECHA SELECCIONADA ===
-  const availableTimes = selectedDate
-    ? horariosDisponibles
-        .filter((slot: any) => slot.fecha === selectedDate)
-        .map((slot: any) => {
-          const hora = slot.hora_inicio;
-          return hora ? hora.slice(0, 5) : null; // "08:00:00" → "08:00"
-        })
-        .filter(Boolean)
-        .sort()
-        .filter((time, index, self) => self.indexOf(time) === index) // eliminar duplicados
-    : [];
+  // === HORAS DISPONIBILES ===
+  const availableTimes = useMemo(() => {
+    if (!selectedDate || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return [];
+
+    return horariosDisponibles
+      .filter((slot) => slot.fecha?.trim() === selectedDate)
+      .map((slot) => slot.hora_inicio?.trim()?.slice(0, 5))
+      .filter((t): t is string => !!t && /^\d{2}:\d{2}$/.test(t))
+      .sort()
+      .filter((t, i, a) => a.indexOf(t) === i);
+  }, [selectedDate, horariosDisponibles]);
 
   // === AGENDAR CITA ===
   const addAppointment = async () => {
@@ -302,75 +361,47 @@ const AppointmentsScreen = () => {
       return;
     }
 
-    const appointmentDateTime = `${selectedDate} ${selectedTime}`;
-    if (appointments.some((appt) => appt.date === appointmentDateTime && !appt.canceled)) {
-      Alert.alert("Error", "Ya tienes una cita en esa fecha y hora.");
+    const dateTime = `${selectedDate} ${selectedTime}`;
+    if (appointments.some(a => a.date === dateTime && !a.canceled)) {
+      Alert.alert("Error", "Ya tienes una cita en esa hora.");
       return;
     }
 
     try {
       setLoading(true);
       const headers = await getAuthHeaders();
+      const [h, m] = selectedTime.split(":").map(Number);
+      const end = new Date();
+      end.setHours(h);
+      end.setMinutes(m + 60);
+      const horaFin = `${end.getHours().toString().padStart(2, "0")}:${end.getMinutes().toString().padStart(2, "0")}`;
 
-      // === OBTENER NOMBRE + UID DEL PACIENTE (ya lo tienes, pero aseguramos uid) ===
-      let pacienteUid = user?.uid;
-      if (!pacienteUid) {
-        Alert.alert("Error", "No se pudo obtener tu ID de usuario.");
-        return;
-      }
-
-      // === CALCULAR HORA FIN (1 hora después) ===
-      const [hours, minutes] = selectedTime.split(":").map(Number);
-      const date = new Date();
-      date.setHours(hours);
-      date.setMinutes(minutes);
-      date.setMinutes(date.getMinutes() + 60); // +1 hora
-
-      const horaFin = `${date.getHours().toString().padStart(2, "0")}:${date
-        .getMinutes()
-        .toString()
-        .padStart(2, "0")}`;
-
-      // === DATOS PARA EL BACKEND ===
-      const citaRequest = {
-        pacienteUid,
+      const request = {
+        pacienteUid: user?.uid,
         doctorUid: selectedDoctor.uid,
         clinicaId: selectedClinic.id,
-        estadoCitaId: 1, // Pendiente
+        estadoCitaId: 1,
         fecha: selectedDate,
         horaInicio: selectedTime,
         horaFin,
         observaciones: "",
       };
 
-      console.log("ENVIANDO CITA:", citaRequest); // DEBUG
+      const res = await axios.post(`${BASE_URL}/api/citas`, request, { headers });
 
-      const response = await axios.post(`${BASE_URL}/api/citas`, citaRequest, { headers });
-
-      const citaId = response.data?.id || response.data?.citaId || Date.now();
-
-      const newAppointment = {
-        id: response.data.id,
-        date: appointmentDateTime,
-        title: especialidades.find((e) => e.id === selectedSpecialty)?.nombre || "Consulta",
+      const newCita = {
+        id: res.data.in_id,
+        date: dateTime,
+        title: especialidades.find(e => e.id === selectedSpecialty)?.nombre || "Consulta",
         doctor: selectedDoctor.nombre,
         clinic: selectedClinic.nombre,
         canceled: false,
       };
 
-      const updated = [...appointments, newAppointment];
-      setAppointments(updated);
-      await AsyncStorage.setItem("patientAppointments", JSON.stringify(updated));
-
-      Alert.alert(
-        "¡Cita agendada!",
-        `Con el Dr. ${selectedDoctor.nombre}\n${selectedClinic.nombre}\n${selectedDate} ${selectedTime} - ${horaFin}`,
-        [{ text: "OK", onPress: resetSelection }]
-      );
+      setAppointments(prev => [...prev, newCita]);
+      Alert.alert("Éxito", "Cita agendada.", [{ text: "OK", onPress: resetSelection }]);
     } catch (error: any) {
-      console.warn("Error al agendar cita:", error.response?.data || error);
-      const msg = error.response?.data?.message || "No se pudo agendar la cita.";
-      Alert.alert("Error", msg);
+      Alert.alert("Error", error.response?.data?.message || "No se pudo agendar.");
     } finally {
       setLoading(false);
     }
@@ -378,29 +409,18 @@ const AppointmentsScreen = () => {
 
   // === CANCELAR CITA ===
   const cancelAppointment = async (id: number) => {
-    if (!isPaciente) {
-      Alert.alert("Acceso denegado", "Solo los pacientes pueden cancelar citas.");
-      return;
-    }
-
-    Alert.alert("Cancelar Cita", "¿Estás seguro?", [
-      { text: "Cancelar", style: "cancel" },
+    Alert.alert("Cancelar", "¿Estás seguro?", [
+      { text: "No", style: "cancel" },
       {
-        text: "Confirmar",
+        text: "Sí",
         onPress: async () => {
           try {
             const headers = await getAuthHeaders();
             await axios.delete(`${BASE_URL}/api/citas/${id}`, { headers });
-
-            const updated = appointments.map((appt) =>
-              appt.id === id ? { ...appt, canceled: true } : appt
-            );
-            setAppointments(updated);
-            await AsyncStorage.setItem("patientAppointments", JSON.stringify(updated));
+            setAppointments(prev => prev.map(a => a.id === id ? { ...a, canceled: true } : a));
             Alert.alert("Cancelada", "La cita fue cancelada.");
-          } catch (error) {
-            console.warn("Error al cancelar cita:", error);
-            Alert.alert("Error", "No se pudo cancelar la cita.");
+          } catch {
+            Alert.alert("Error", "No se pudo cancelar.");
           }
         },
       },
@@ -416,325 +436,213 @@ const AppointmentsScreen = () => {
     setSelectedTime("");
   };
 
-  const isSelectionComplete = selectedClinic && selectedSpecialty && selectedDoctor;
+  // === RENDER CITA ===
+  const renderAppointment = ({ item, index }: { item: any; index: number }) => {
+    const [date, time] = item.date.split(" ");
+    const key = item.id ? String(item.id) : `appt-${index}`;
+    return (
+      <View key={key} style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}>
+        <View style={styles.appointmentInfo}>
+          <Text style={[styles.appointmentSpecialty, item.canceled && styles.canceledText]}>
+            {item.title}
+          </Text>
+          <Text style={[styles.appointmentDoctor, item.canceled && styles.canceledText]}>
+            {item.doctor}
+          </Text>
+          <Text style={[styles.appointmentClinic, item.canceled && styles.canceledText]}>
+            {item.clinic}
+          </Text>
+          <Text style={[styles.appointmentDate, item.canceled && styles.canceledText]}>
+            {formatDate(date)} • {formatTime(time)}
+          </Text>
+        </View>
+        {!item.canceled && (
+          <TouchableOpacity style={styles.cancelButton} onPress={() => cancelAppointment(item.id)}>
+            <Text style={styles.cancelButtonText}>Cancelar</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <Header nombre={loadingName ? "Cargando..." : nombreReal} />
 
-      <View style={styles.contentContainer}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {isPaciente ? (
-            // === VISTA PACIENTE ===
-            <>
-              <View style={styles.mainCard}>
-                <Text style={styles.title}>Agenda tu Cita Médica</Text>
-                <Text style={styles.subtitle}>Selecciona clínica, especialidad y doctor</Text>
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={appointments}
+          keyExtractor={(item, index) => item.id ? String(item.id) : `appt-${index}`}
+          renderItem={renderAppointment}
+          ListEmptyComponent={
+            loadingCitas ? (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="small" color="#007AFF" />
+                <Text style={styles.emptyText}>Cargando citas...</Text>
               </View>
-
-              {/* CLÍNICA */}
-              {clinicas.length > 0 && (
-                <View style={styles.selectionCard}>
-                  <Text style={styles.sectionTitle}>1. Clínica</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={selectedClinic?.id || null}
-                      onValueChange={(value) => {
-                        const clinic = clinicas.find((c) => c.id === value);
-                        setSelectedClinic(clinic || null);
-                        setSelectedSpecialty(null);
-                        setSelectedDoctor(null);
-                        setSelectedDate("");
-                      }}
-                      style={styles.picker}
-                      dropdownIconColor="#007AFF"
-                      enabled={!loading}
-                    >
-                      <Picker.Item label="-- Seleccione clínica --" value={null} color="#999" />
-                      {clinicas.map((clinica) => (
-                        <Picker.Item
-                          key={clinica.id}
-                          label={clinica.nombre}
-                          value={clinica.id}
-                          color="#333"
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                  {selectedClinic && (
-                    <View style={styles.selectionIndicator}>
-                      <View style={styles.dotSelected} />
-                      <Text style={styles.indicatorText}>Seleccionada</Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* ESPECIALIDAD */}
-              {selectedClinic && (
-                <View style={styles.selectionCard}>
-                  <Text style={styles.sectionTitle}>2. Especialidad</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={selectedSpecialty}
-                      onValueChange={(value) => {
-                        setSelectedSpecialty(value);
-                        setSelectedDoctor(null);
-                        setSelectedDate("");
-                      }}
-                      style={styles.picker}
-                      dropdownIconColor="#007AFF"
-                      enabled={!loading}
-                    >
-                      <Picker.Item label="-- Seleccione --" value={null} color="#999" />
-                      {especialidades.map((esp) => (
-                        <Picker.Item
-                          key={esp.id}
-                          label={esp.nombre}
-                          value={esp.id}
-                          color="#333"
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                  {selectedSpecialty && (
-                    <View style={styles.selectionIndicator}>
-                      <View style={styles.dotSelected} />
-                      <Text style={styles.indicatorText}>Seleccionada</Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* DOCTOR */}
-              {selectedSpecialty && (
-                <View style={styles.selectionCard}>
-                  <Text style={styles.sectionTitle}>3. Doctor</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={selectedDoctor?.uid || null}
-                      onValueChange={(value) => {
-                        const doc = doctores.find((d) => d.uid === value);
-                        setSelectedDoctor(doc || null);
-                        setSelectedDate("");
-                      }}
-                      style={styles.picker}
-                      dropdownIconColor="#007AFF"
-                      enabled={!loading}
-                    >
-                      <Picker.Item label="-- Seleccione --" value={null} color="#999" />
-                      {doctores.map((doc) => (
-                        <Picker.Item
-                          key={doc.uid}
-                          label={doc.nombre}
-                          value={doc.uid}
-                          color="#333"
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                  {selectedDoctor && (
-                    <View style={styles.selectionIndicator}>
-                      <View style={styles.dotSelected} />
-                      <Text style={styles.indicatorText}>Seleccionado</Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* CALENDARIO Y HORAS */}
-              {selectedDoctor && (
-                <View style={styles.calendarCard}>
-                  <Text style={styles.sectionTitle}>4. Fecha y Hora</Text>
-                  <View style={styles.calendarContainer}>
-                    <Calendar
-                      minDate={new Date().toISOString().split("T")[0]}
-                      onDayPress={(day) => setSelectedDate(day.dateString)}
-                      markedDates={markedDates}
-                      theme={{
-                        selectedDayBackgroundColor: "#007AFF",
-                        todayTextColor: "#007AFF",
-                        arrowColor: "#007AFF",
-                      }}
-                      style={styles.calendar}
-                      disabled={loading}
-                    />
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No hay citas agendadas</Text>
+              </View>
+            )
+          }
+          ListHeaderComponent={
+            <>
+              {isPaciente ? (
+                <>
+                  <View style={styles.mainCard}>
+                    <Text style={styles.title}>Agenda tu Cita</Text>
+                    <Text style={styles.subtitle}>Selecciona clínica, especialidad y doctor</Text>
                   </View>
 
-                  {selectedDate && availableTimes.length > 0 && (
-                    <View style={styles.dateSelectionCard}>
-                      <Text style={styles.selectedDate}>Fecha: {selectedDate}</Text>
-                      <Text style={styles.label}>Hora disponible:</Text>
-                      <View style={styles.pickerContainer}>
-                        <Picker
-                          selectedValue={selectedTime}
-                          onValueChange={setSelectedTime}
-                          style={styles.picker}
-                          dropdownIconColor="#007AFF"
-                        >
-                          {availableTimes.map((time) => (
-                            <Picker.Item key={time} label={time} value={time} color="#333" />
-                          ))}
-                        </Picker>
-                      </View>
-
-                      <View style={styles.actionButtons}>
-                        <TouchableOpacity
-                          style={[styles.addButton, loading && styles.disabledButton]}
-                          onPress={addAppointment}
-                          disabled={loading}
-                        >
-                          <Text style={styles.addButtonText}>
-                            {loading ? "Agendando..." : "Agendar Cita"}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.resetButton} onPress={resetSelection}>
-                          <Text style={styles.resetButtonText}>Cambiar</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-
-                  {selectedDate && availableTimes.length === 0 && (
-                    <Text style={{ textAlign: "center", color: "#999", marginTop: 10 }}>
-                      No hay horarios disponibles en esta fecha.
-                    </Text>
-                  )}
-                </View>
-              )}
-
-              {/* MIS CITAS */}
-              {appointments.length > 0 && (
-                <View style={styles.appointmentsCard}>
-                  <Text style={styles.sectionTitle}>Mis Citas</Text>
-                  <FlatList
-                    data={appointments}
-                    keyExtractor={(item) => String(item.id || Math.random())}
-                    renderItem={({ item }) => (
-                      <View
-                        style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
+                  {/* CLÍNICA */}
+                  {clinicas.length > 0 && (
+                    <View style={styles.selectionCard}>
+                      <Text style={styles.sectionTitle}>1. Clínica</Text>
+                      <Picker
+                        selectedValue={selectedClinic?.id || null}
+                        onValueChange={(v) => {
+                          const c = clinicas.find(x => x.id === v);
+                          setSelectedClinic(c || null);
+                          setSelectedSpecialty(null);
+                          setSelectedDoctor(null);
+                          setSelectedDate("");
+                        }}
+                        style={styles.picker}
                       >
-                        <View style={styles.appointmentInfo}>
-                          <Text
-                            style={[
-                              styles.appointmentSpecialty,
-                              item.canceled && styles.canceledText,
-                            ]}
+                        <Picker.Item label="-- Seleccione clínica --" value={null} />
+                        {clinicas.map(c => (
+                          <Picker.Item key={c.id} label={c.nombre} value={c.id} />
+                        ))}
+                      </Picker>
+                    </View>
+                  )}
+
+                  {/* ESPECIALIDAD */}
+                  {selectedClinic && (
+                    <View style={styles.selectionCard}>
+                      <Text style={styles.sectionTitle}>2. Especialidad</Text>
+                      <Picker
+                        selectedValue={selectedSpecialty}
+                        onValueChange={(v) => {
+                          setSelectedSpecialty(v);
+                          setSelectedDoctor(null);
+                          setSelectedDate("");
+                        }}
+                        style={styles.picker}
+                      >
+                        <Picker.Item label="-- Seleccione --" value={null} />
+                        {especialidades.map(e => (
+                          <Picker.Item key={e.id} label={e.nombre} value={e.id} />
+                        ))}
+                      </Picker>
+                    </View>
+                  )}
+
+                  {/* DOCTOR */}
+                  {selectedSpecialty && doctores.length > 0 && (
+                    <View style={styles.selectionCard}>
+                      <Text style={styles.sectionTitle}>3. Doctor</Text>
+                      <Picker
+                        selectedValue={selectedDoctor?.uid || null}
+                        onValueChange={(v) => {
+                          const d = doctores.find(x => x.uid === v);
+                          setSelectedDoctor(d || null);
+                          setSelectedDate("");
+                        }}
+                        style={styles.picker}
+                      >
+                        <Picker.Item label="-- Seleccione --" value={null} />
+                        {doctores.map(d => (
+                          <Picker.Item key={d.uid} label={d.nombre} value={d.uid} />
+                        ))}
+                      </Picker>
+                    </View>
+                  )}
+
+                  {/* CALENDARIO */}
+                  {selectedDoctor && (
+                    <View style={styles.calendarCard}>
+                      <Text style={styles.sectionTitle}>4. Fecha y Hora</Text>
+                      <Calendar
+                        minDate={new Date().toISOString().split("T")[0]}
+                        onDayPress={(day) => {
+                          if (day?.dateString && /^\d{4}-\d{2}-\d{2}$/.test(day.dateString)) {
+                            setSelectedDate(day.dateString);
+                          }
+                        }}
+                        markedDates={markedDates}
+                        theme={{
+                          selectedDayBackgroundColor: "#007AFF",
+                          todayTextColor: "#007AFF",
+                          arrowColor: "#007AFF",
+                        }}
+                        style={styles.calendar}
+                      />
+
+                      {selectedDate && availableTimes.length > 0 && (
+                        <View style={styles.dateSelectionCard}>
+                          <Text style={styles.selectedDate}>Fecha: {formatDate(selectedDate)}</Text>
+                          <Text style={styles.label}>Hora:</Text>
+                          <Picker
+                            selectedValue={selectedTime}
+                            onValueChange={(value) => value && setSelectedTime(value)}
+                            style={styles.picker}
                           >
-                            {item.title}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentDoctor,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.doctor}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentClinic,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.clinic}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentDate,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.date}
-                          </Text>
+                            {availableTimes.map(t => (
+                              <Picker.Item key={t} label={t} value={t} />
+                            ))}
+                          </Picker>
+
+                          <View style={styles.actionButtons}>
+                            <TouchableOpacity
+                              style={[styles.addButton, loading && styles.disabledButton]}
+                              onPress={addAppointment}
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <ActivityIndicator color="#fff" />
+                              ) : (
+                                <Text style={styles.addButtonText}>Agendar</Text>
+                              )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.resetButton} onPress={resetSelection}>
+                              <Text style={styles.resetButtonText}>Cambiar</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                        {!item.canceled && (
-                          <TouchableOpacity
-                            style={styles.cancelButton}
-                            onPress={() => cancelAppointment(item.id)}
-                          >
-                            <Text style={styles.cancelButtonText}>Cancelar</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
+                      )}
+                    </View>
+                  )}
+
+                  {appointments.length > 0 && (
+                    <View style={styles.appointmentsCard}>
+                      <Text style={styles.sectionTitle}>Mis Citas</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={styles.calendarView}>
+                  <Text style={styles.sectionTitle}>Calendario de Citas</Text>
+                  <Calendar
+                    minDate={new Date().toISOString().split("T")[0]}
+                    markedDates={markedDates}
+                    theme={{ todayTextColor: "#007AFF", arrowColor: "#007AFF" }}
+                    style={styles.calendar}
                   />
+                  {appointments.length > 0 && (
+                    <View style={styles.appointmentsCard}>
+                      <Text style={styles.sectionTitle}>Citas Agendadas</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </>
-          ) : (
-            // === VISTA MÉDICO / ADMIN / ASISTENTE ===
-            <View style={styles.calendarView}>
-              <Text style={styles.sectionTitle}>Calendario de Citas</Text>
-              <View style={styles.calendarContainer}>
-                <Calendar
-                  minDate={new Date().toISOString().split("T")[0]}
-                  markedDates={markedDates}
-                  theme={{
-                    todayTextColor: "#007AFF",
-                    arrowColor: "#007AFF",
-                  }}
-                  style={styles.calendar}
-                  onDayPress={(day) => Alert.alert("Cita", `Fecha: ${day.dateString}`)}
-                />
-              </View>
-
-              {appointments.length > 0 && (
-                <View style={styles.appointmentsCard}>
-                  <Text style={styles.sectionTitle}>Citas Agendadas</Text>
-                  <FlatList
-                    data={appointments}
-                    keyExtractor={(item) => String(item.id || Math.random())}
-                    renderItem={({ item }) => (
-                      <View
-                        style={[styles.appointmentCard, item.canceled && styles.canceledAppointment]}
-                      >
-                        <View style={styles.appointmentInfo}>
-                          <Text
-                            style={[
-                              styles.appointmentSpecialty,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.title}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentDoctor,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.doctor}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentClinic,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.clinic}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.appointmentDate,
-                              item.canceled && styles.canceledText,
-                            ]}
-                          >
-                            {item.date}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                  />
-                </View>
-              )}
-            </View>
-          )}
-        </ScrollView>
+          }
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+        />
       </View>
 
       <Footer />
@@ -742,12 +650,12 @@ const AppointmentsScreen = () => {
   );
 };
 
-// === ESTILOS ===
+// === ESTILOS (sin cambios) ===
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
-  contentContainer: { flex: 1 },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 120 },
+  contentContainer: { padding: 20, paddingBottom: 100, flexGrow: 1 },
+  emptyContainer: { padding: 40, alignItems: "center" },
+  emptyText: { fontSize: 16, color: "#888", marginTop: 8 },
   mainCard: { backgroundColor: "#fff", marginBottom: 12, padding: 24, borderRadius: 20, alignItems: "center" },
   selectionCard: { backgroundColor: "#fff", marginBottom: 12, padding: 20, borderRadius: 20 },
   calendarCard: { backgroundColor: "#fff", marginBottom: 12, padding: 20, borderRadius: 20 },
@@ -756,18 +664,13 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: "bold", color: "#007AFF", marginBottom: 8, textAlign: "center" },
   subtitle: { fontSize: 16, color: "#666", textAlign: "center" },
   sectionTitle: { fontSize: 18, fontWeight: "700", color: "#007AFF", marginBottom: 16, textAlign: "center" },
-  pickerContainer: { marginBottom: 12 },
   picker: { height: 50, backgroundColor: "#f8f9fa", borderRadius: 12 },
-  selectionIndicator: { flexDirection: "row", alignItems: "center", marginTop: 8, paddingHorizontal: 12, backgroundColor: "#e7f3ff", borderRadius: 8, alignSelf: "flex-start" },
-  dotSelected: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#007AFF", marginRight: 8 },
-  indicatorText: { fontSize: 14, color: "#007AFF", fontWeight: "600" },
-  calendarContainer: { backgroundColor: "#f8f9fa", borderRadius: 16, padding: 8, marginBottom: 16 },
   calendar: { borderRadius: 12 },
   dateSelectionCard: { backgroundColor: "#f0f8ff", padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "#007AFF" },
   selectedDate: { fontSize: 16, color: "#007AFF", marginBottom: 16, textAlign: "center", fontWeight: "600" },
   label: { fontSize: 16, fontWeight: "600", marginBottom: 5, color: "#333" },
   actionButtons: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 12 },
-  addButton: { flex: 1, backgroundColor: "#007AFF", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+  addButton: { flex: 1, backgroundColor: "#007AFF", paddingVertical: 12, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   disabledButton: { backgroundColor: "#A0C4FF", opacity: 0.7 },
   addButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   resetButton: { flex: 1, borderWidth: 1, borderColor: "#007AFF", paddingVertical: 12, borderRadius: 10, alignItems: "center" },
