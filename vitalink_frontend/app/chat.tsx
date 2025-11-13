@@ -1,7 +1,6 @@
 // app/chat.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -16,6 +15,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import axios from "axios";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
 const BOT_USER = {
   _id: 2,
@@ -28,6 +31,41 @@ const ChatScreen = () => {
   const { user } = useAuth();
   const router = useRouter();
 
+  // === ESTADO NOMBRE REAL ===
+  const [nombreReal, setNombreReal] = useState<string>("Cargando...");
+  const [loadingName, setLoadingName] = useState(true);
+
+  // === CARGAR NOMBRE REAL ===
+  useEffect(() => {
+    const fetchNombre = async () => {
+      if (!user?.uid) {
+        setNombreReal("Usuario");
+        setLoadingName(false);
+        return;
+      }
+
+      try {
+        const { getAuth } = await import("firebase/auth");
+        const token = await getAuth().currentUser?.getIdToken();
+        if (!token) throw new Error("No token");
+
+        const response = await axios.get(`${BASE_URL}/api/auth/getname`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setNombreReal(response.data.nombre || "Paciente");
+      } catch (error) {
+        console.warn("Error al obtener nombre:", error);
+        setNombreReal(user?.nombre || "Usuario");
+      } finally {
+        setLoadingName(false);
+      }
+    };
+
+    fetchNombre();
+  }, [user?.uid]);
+
+  // === VALIDAR USUARIO ===
   useEffect(() => {
     if (!user) {
       Alert.alert('Acceso denegado', 'Debes iniciar sesión para usar el chat.');
@@ -35,16 +73,19 @@ const ChatScreen = () => {
       return;
     }
 
+    const saludo = `¡Hola ${nombreReal}! Soy el asistente de VitaLink.\n\nPuedes preguntarme:\n• ¿Cómo agendar una cita?\n• ¿Qué documentos necesito?\n• ¿Cuál es mi rol?\n\n¡Escribe tu duda!`;
+
     setMessages([
       {
         _id: 1,
-        text: `¡Hola ${user?.email?.split('@')[0] || 'usuario'}! Soy el asistente de VitaLink.\n\nPuedes preguntarme:\n• ¿Cómo agendar una cita?\n• ¿Qué documentos necesito?\n• ¿Cuál es mi rol?\n\n¡Escribe tu duda!`,
+        text: saludo,
         createdAt: new Date(),
         user: BOT_USER,
       },
     ]);
-  }, [user]);
+  }, [user, nombreReal, router]);
 
+  // === RESPUESTAS DEL BOT ===
   const getBotResponse = (text: string): string => {
     const lowerText = text.toLowerCase().trim();
 
@@ -82,6 +123,7 @@ const ChatScreen = () => {
     }, 800);
   }, [user?.roleName]);
 
+  // === RENDERIZADO DE COMPONENTES ===
   const renderBubble = (props: any) => (
     <Bubble
       {...props}
@@ -117,14 +159,16 @@ const ChatScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Header nombre={"nombre"} />
-      {/* Botón Volver */}
+    <SafeAreaView style={styles.safeArea}>
+      {/* HEADER CON NOMBRE REAL */}
+      <Header nombre={loadingName ? "Cargando..." : nombreReal} />
+
+      {/* BOTÓN VOLVER */}
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Ionicons name="arrow-back" size={26} color="#007AFF" />
       </TouchableOpacity>
 
-      {/* Título */}
+      {/* TÍTULO PERSONALIZADO */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chat con Asistente</Text>
         <View style={styles.onlineIndicator}>
@@ -133,8 +177,9 @@ const ChatScreen = () => {
         </View>
       </View>
 
+      {/* CHAT CON KEYBOARD AWARE */}
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={styles.chatContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
@@ -143,7 +188,7 @@ const ChatScreen = () => {
           onSend={(messages) => onSend(messages)}
           user={{
             _id: 1,
-            name: user?.email?.split('@')[0] || 'Tú',
+            name: nombreReal,
           }}
           placeholder="Escribe tu mensaje..."
           renderBubble={renderBubble}
@@ -156,19 +201,20 @@ const ChatScreen = () => {
           isLoadingEarlier={false}
         />
       </KeyboardAvoidingView>
+
       <Footer />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#FFF',
   },
   backButton: {
     position: 'absolute',
-    top: 70,
+    top: 95,
     left: 20,
     zIndex: 10,
     backgroundColor: 'rgba(255,255,255,0.9)',
@@ -209,6 +255,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4CAF50',
     fontWeight: '500',
+  },
+  chatContainer: {
+    flex: 1,
   },
   sendButton: {
     justifyContent: 'center',
