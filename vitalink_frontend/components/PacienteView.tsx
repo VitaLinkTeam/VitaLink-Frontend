@@ -2,23 +2,18 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
-import Footer from "../components/Footer";
-import { useRouter } from "expo-router"; // Importar router para navegación
+import { useRouter } from "expo-router";
 
 const PacienteView = () => {
   const [selectedDate, setSelectedDate] = useState<string>("");
-  const router = useRouter(); // Router para navegar a /dependents
+  const router = useRouter();
 
   return (
     <ScrollView style={styles.container}>
       {/* Buscador */}
       <View style={styles.searchContainer}>
         <Ionicons name="search-outline" size={20} color="#999" />
-        <TextInput
-          placeholder="Buscar"
-          style={styles.searchInput}
-          placeholderTextColor="#999"
-        />
+        <TextInput placeholder="Buscar" style={styles.searchInput} placeholderTextColor="#999" />
         <Ionicons name="filter-outline" size={20} color="#999" />
       </View>
 
@@ -27,11 +22,7 @@ const PacienteView = () => {
       <Calendar
         onDayPress={(day) => setSelectedDate(day.dateString)}
         markedDates={{
-          [selectedDate]: {
-            selected: true,
-            marked: true,
-            selectedColor: "#007AFF",
-          },
+          [selectedDate]: { selected: true, marked: true, selectedColor: "#007AFF" },
         }}
         theme={{
           selectedDayBackgroundColor: "#007AFF",
@@ -40,53 +31,50 @@ const PacienteView = () => {
         }}
         style={styles.calendar}
       />
-      {selectedDate ? (
+      {selectedDate && (
         <Text style={styles.selectedDate}>Fecha seleccionada: {selectedDate}</Text>
-      ) : null}
+      )}
 
       {/* Especialidades */}
       <Text style={styles.sectionTitle}>Especialidades</Text>
       <View style={styles.specialties}>
         <View style={styles.specialty}>
           <Ionicons name="eye-outline" size={30} color="#007AFF" />
-          <Text style={styles.specialtyText}>Ophthalmology</Text>
+          <Text style={styles.specialtyText}>Oftalmología</Text>
         </View>
         <View style={styles.specialty}>
           <Ionicons name="medkit-outline" size={30} color="#007AFF" />
-          <Text style={styles.specialtyText}>Dentist</Text>
+          <Text style={styles.specialtyText}>Odontología</Text>
         </View>
         <View style={styles.specialty}>
           <Ionicons name="heart-outline" size={30} color="#007AFF" />
-          <Text style={styles.specialtyText}>Gastroenterology</Text>
+          <Text style={styles.specialtyText}>Gastroenterología</Text>
         </View>
         <View style={styles.specialty}>
           <Ionicons name="ellipsis-horizontal" size={30} color="#007AFF" />
-          <Text style={styles.specialtyText}>More</Text>
+          <Text style={styles.specialtyText}>Más</Text>
         </View>
       </View>
 
       {/* Recomendaciones */}
       <Text style={styles.sectionTitle}>Recomendaciones</Text>
       <View style={styles.recommendationCard}>
-        <Image
-          source={require("../assets/images/dentist_placeholder.png")}
-          style={styles.recommendationImage}
-        />
+        <Image source={require("../assets/images/dentist_placeholder.png")} style={styles.recommendationImage} />
         <View style={styles.recommendationContent}>
-          <Text style={styles.doctorName}>Dra: Rafaela</Text>
-          <Text style={styles.recommendationText}>📞 88459860</Text>
-          <Text style={styles.recommendationText}>📅 Make an appointment</Text>
-          <Text style={styles.recommendationText}>✉️ Contact@rafaela.com</Text>
+          <Text style={styles.doctorName}>Dra. Rafaela</Text>
+          <Text style={styles.recommendationText}>88459860</Text>
+          <Text style={styles.recommendationText}>Agenda tu cita</Text>
+          <Text style={styles.recommendationText}>Contact@rafaela.com</Text>
           <Text style={styles.recommendationDescription}>
-            asda asdasd fsdf sdfgfs fdgfg jity edit error jity jalivn
+            Especialista en salud dental con más de 10 años de experiencia.
           </Text>
           <TouchableOpacity>
-            <Text style={styles.moreLink}>More</Text>
+            <Text style={styles.moreLink}>Ver más</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Sección para Gestionar Dependientes */}
+      {/* SECCIÓN DEPENDIENTES: SOLO PARA PACIENTES */}
       <Text style={styles.sectionTitle}>Dependientes</Text>
       <TouchableOpacity
         style={styles.dependentsButton}

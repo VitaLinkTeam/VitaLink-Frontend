@@ -21,7 +21,6 @@ import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '@/context/AuthContext';
 import axios from 'axios';
 
-// === TIPOS ===
 interface ClinicaResponse {
   id?: number;
   in_id?: number;
@@ -39,7 +38,6 @@ const ROLE_MAP: Record<UserType, string> = {
   admin: 'Administrador',
 };
 
-// === ESPECIALIZACIONES ESTÁTICAS (ORDEN FIJO) ===
 const ESPECIALIZACIONES = [
   { id: 1, nombre: 'Medicina General' },
   { id: 2, nombre: 'Pediatría' },
@@ -74,7 +72,6 @@ const RegisterScreen = () => {
 
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // === VALIDACIONES ===
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const validatePassword = (pass: string) =>
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pass);
@@ -121,26 +118,29 @@ const RegisterScreen = () => {
     if (success) {
       setTimeout(() => {
         setModalVisible(false);
-        router.replace('/HomeScreen');
+        // NO REDIRIGIR AQUÍ → AuthContext lo hará
       }, 2000);
     }
   };
 
-  // === REGISTRO BÁSICO (Paciente, Médico, Asistente) ===
   const handleBasicUserSignup = async () => {
     try {
       const roleName = ROLE_MAP[userType];
-      const clinicaId = userType === 'paciente' ? 1 : null;
 
-      // 1. Crear usuario
-      await signup(correo, contrasena, roleName, clinicaId, 'https://randomuser.me/api/portraits/lego/1.jpg', '');
+      await signup(
+        correo,
+        contrasena,
+        roleName,
+        userType === 'paciente' ? 1 : null,
+        'https://randomuser.me/api/portraits/lego/1.jpg',
+        '',
+        nombre.trim()
+      );
 
-      // 2. Si es médico, enviar especialización
       if (userType === 'medico' && especializacionId) {
         const { getAuth } = await import('firebase/auth');
         const token = await getAuth().currentUser?.getIdToken();
         const uid = getAuth().currentUser?.uid;
-
         if (token && uid) {
           await axios.put(
             `${BASE_URL}/api/usuarios/${uid}`,
@@ -159,7 +159,6 @@ const RegisterScreen = () => {
     }
   };
 
-  // === REGISTRO ADMIN + CLÍNICA ===
   const handleAdminUserSignup = async () => {
     const error = validateClinicStep();
     if (error) {
@@ -168,7 +167,15 @@ const RegisterScreen = () => {
     }
 
     try {
-      await signup(correo, contrasena, ROLE_MAP['admin'], null, 'https://randomuser.me/api/portraits/lego/2.jpg', '');
+      await signup(
+        correo,
+        contrasena,
+        ROLE_MAP['admin'],
+        null,
+        'https://randomuser.me/api/portraits/lego/2.jpg',
+        '',
+        nombre.trim()
+      );
 
       const { getAuth } = await import('firebase/auth');
       const token = await getAuth().currentUser?.getIdToken();
@@ -226,21 +233,15 @@ const RegisterScreen = () => {
               <View style={styles.inputContainer}>
                 {!showClinicForm ? (
                   <>
-                    {/* 4 RADIO BUTTONS */}
+                    {/* RADIO BUTTONS */}
                     <View style={styles.radioContainer}>
-                      <TouchableOpacity
-                        style={styles.radioButton}
-                        onPress={() => setUserType('paciente')}
-                      >
+                      <TouchableOpacity style={styles.radioButton} onPress={() => setUserType('paciente')}>
                         <View style={styles.radioCircle}>
                           {userType === 'paciente' && <View style={styles.selectedRb} />}
                         </View>
                         <Text style={styles.radioText}>Paciente</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.radioButton}
-                        onPress={() => setUserType('medico')}
-                      >
+                      <TouchableOpacity style={styles.radioButton} onPress={() => setUserType('medico')}>
                         <View style={styles.radioCircle}>
                           {userType === 'medico' && <View style={styles.selectedRb} />}
                         </View>
@@ -249,19 +250,13 @@ const RegisterScreen = () => {
                     </View>
 
                     <View style={styles.radioContainer}>
-                      <TouchableOpacity
-                        style={styles.radioButton}
-                        onPress={() => setUserType('asistente')}
-                      >
+                      <TouchableOpacity style={styles.radioButton} onPress={() => setUserType('asistente')}>
                         <View style={styles.radioCircle}>
                           {userType === 'asistente' && <View style={styles.selectedRb} />}
                         </View>
                         <Text style={styles.radioText}>Asistente</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.radioButton}
-                        onPress={() => setUserType('admin')}
-                      >
+                      <TouchableOpacity style={styles.radioButton} onPress={() => setUserType('admin')}>
                         <View style={styles.radioCircle}>
                           {userType === 'admin' && <View style={styles.selectedRb} />}
                         </View>
@@ -269,41 +264,11 @@ const RegisterScreen = () => {
                       </TouchableOpacity>
                     </View>
 
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Nombre completo"
-                      placeholderTextColor="#666"
-                      value={nombre}
-                      onChangeText={setNombre}
-                      autoCapitalize="words"
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Correo electrónico"
-                      placeholderTextColor="#666"
-                      value={correo}
-                      onChangeText={setCorreo}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Contraseña"
-                      placeholderTextColor="#666"
-                      value={contrasena}
-                      onChangeText={setContrasena}
-                      secureTextEntry
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Confirmar contraseña"
-                      placeholderTextColor="#666"
-                      value={confirmarContrasena}
-                      onChangeText={setConfirmarContrasena}
-                      secureTextEntry
-                    />
+                    <TextInput style={styles.textInput} placeholder="Nombre completo" placeholderTextColor="#666" value={nombre} onChangeText={setNombre} autoCapitalize="words" />
+                    <TextInput style={styles.textInput} placeholder="Correo electrónico" placeholderTextColor="#666" value={correo} onChangeText={setCorreo} keyboardType="email-address" autoCapitalize="none" />
+                    <TextInput style={styles.textInput} placeholder="Contraseña" placeholderTextColor="#666" value={contrasena} onChangeText={setContrasena} secureTextEntry />
+                    <TextInput style={styles.textInput} placeholder="Confirmar contraseña" placeholderTextColor="#666" value={confirmarContrasena} onChangeText={setConfirmarContrasena} secureTextEntry />
 
-                    {/* SELECTOR DE ESPECIALIZACIÓN (TEXTO NEGRO) */}
                     {userType === 'medico' && (
                       <View style={styles.pickerContainer}>
                         <Picker
@@ -315,12 +280,7 @@ const RegisterScreen = () => {
                         >
                           <Picker.Item label="Selecciona una especialización" value={null} color="#999" />
                           {ESPECIALIZACIONES.map((esp) => (
-                            <Picker.Item
-                              key={esp.id}
-                              label={esp.nombre}
-                              value={esp.id}
-                              color="#000"
-                            />
+                            <Picker.Item key={esp.id} label={esp.nombre} value={esp.id} color="#000" />
                           ))}
                         </Picker>
                       </View>
@@ -338,37 +298,10 @@ const RegisterScreen = () => {
                       <Ionicons name="arrow-back" size={24} color="#007AFF" />
                     </TouchableOpacity>
 
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Nombre de la Clínica"
-                      placeholderTextColor="#666"
-                      value={clinicName}
-                      onChangeText={setClinicName}
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Dirección"
-                      placeholderTextColor="#666"
-                      value={clinicAddress}
-                      onChangeText={setClinicAddress}
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Teléfono de la Clínica"
-                      placeholderTextColor="#666"
-                      value={clinicPhone}
-                      onChangeText={setClinicPhone}
-                      keyboardType="phone-pad"
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Correo de la Clínica"
-                      placeholderTextColor="#666"
-                      value={clinicEmail}
-                      onChangeText={setClinicEmail}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
+                    <TextInput style={styles.textInput} placeholder="Nombre de la Clínica" placeholderTextColor="#666" value={clinicName} onChangeText={setClinicName} />
+                    <TextInput style={styles.textInput} placeholder="Dirección" placeholderTextColor="#666" value={clinicAddress} onChangeText={setClinicAddress} />
+                    <TextInput style={styles.textInput} placeholder="Teléfono de la Clínica" placeholderTextColor="#666" value={clinicPhone} onChangeText={setClinicPhone} keyboardType="phone-pad" />
+                    <TextInput style={styles.textInput} placeholder="Correo de la Clínica" placeholderTextColor="#666" value={clinicEmail} onChangeText={setClinicEmail} keyboardType="email-address" autoCapitalize="none" />
 
                     <TouchableOpacity style={styles.registerButton} onPress={handleAdminUserSignup}>
                       <Text style={styles.buttonText}>Registrar Clínica y Admin</Text>
@@ -401,7 +334,6 @@ const RegisterScreen = () => {
   );
 };
 
-// === ESTILOS (PICKER NEGRO + CORRECCIONES) ===
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#007AFF' },
   scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10 },
@@ -462,11 +394,7 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
     overflow: 'hidden',
   },
-  picker: {
-    color: '#000',
-    fontSize: 16,
-    paddingHorizontal: 15,
-  },
+  picker: { color: '#000', fontSize: 16, paddingHorizontal: 15 },
   registerButton: {
     width: '90%',
     height: 50,

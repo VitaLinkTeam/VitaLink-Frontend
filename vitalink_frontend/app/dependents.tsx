@@ -1,72 +1,104 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Alert,
+} from "react-native";
 import { Picker } from "@react-native-picker/picker";
-import { v4 as uuidv4 } from 'uuid';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { v4 as uuidv4 } from "uuid";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "expo-router";
+import axios from "axios";
+
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
 const DependentsScreen = () => {
   const { user } = useAuth();
-  const rol = user?.rol;
   const router = useRouter();
 
-  const getNombrePorRol = () => {
-    switch (rol) {
-      case 1:
-        return "Dra. Rafaela Amador";
-      case 2:
-        return "Administrador J";
-      case 4:
-        return "Asistente S";
-      case 3:
-      default:
-        return "Fernando Lizano";
-    }
-  };
+  const [nombreReal, setNombreReal] = useState<string>("Cargando...");
+  const [loadingName, setLoadingName] = useState(true);
+
+  const roleName = user?.roleName;
+  const isPaciente = roleName === "Paciente";
+
+  if (!isPaciente) {
+    return (
+      <SafeAreaView style={styles.deniedContainer}>
+        <Text style={styles.deniedText}>Acceso denegado. Solo para pacientes.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  useEffect(() => {
+    const fetchNombre = async () => {
+      if (!user?.uid) {
+        setNombreReal("Paciente");
+        setLoadingName(false);
+        return;
+      }
+
+      try {
+        const { getAuth } = await import("firebase/auth");
+        const token = await getAuth().currentUser?.getIdToken();
+        if (!token) throw new Error("No token");
+
+        const response = await axios.get(`${BASE_URL}/api/auth/getname`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setNombreReal(response.data.nombre || "Paciente");
+      } catch (error) {
+        console.warn("Error al obtener nombre:", error);
+        setNombreReal(user?.nombre || "Paciente");
+      } finally {
+        setLoadingName(false);
+      }
+    };
+
+    fetchNombre();
+  }, [user?.uid]);
 
   const parentezcos = [
     "Padre", "Madre", "Hijo", "Hija", "Abuelo", "Abuela", "Nieto", "Nieta",
     "Hermano", "Hermana", "Tío", "Tía", "Primo", "Prima", "Sobrino", "Sobrina",
-    "Pareja", "Cónyuge", "Tutor", "Representante legal"
+    "Pareja", "Cónyuge", "Tutor", "Representante legal",
   ];
 
-  const [dependents, setDependents] = useState([
-    { id: uuidv4(), nombre: "Juan Lizano", parentezco: "Hijo", correo: "juan@example.com" },
-    { id: uuidv4(), nombre: "Maria Lizano", parentezco: "Hija", correo: "maria@example.com" },
-  ]);
+  const [dependents, setDependents] = useState("");
 
   const [newNombre, setNewNombre] = useState("");
   const [newCorreo, setNewCorreo] = useState("");
   const [newParentezco, setNewParentezco] = useState(parentezcos[0]);
 
-  useEffect(() => {
-    console.log("Dependientes actualizados:", dependents);
-  }, [dependents]);
-
   const addDependent = () => {
-    if (!newNombre || !newCorreo) {
+    if (!newNombre.trim() || !newCorreo.trim()) {
       Alert.alert("Error", "Por favor completa todos los campos.");
       return;
     }
 
     const newDependent = {
       id: uuidv4(),
-      nombre: newNombre,
+      nombre: newNombre.trim(),
       parentezco: newParentezco,
-      correo: newCorreo,
+      correo: newCorreo.trim(),
     };
 
-    setDependents([...dependents, newDependent]);
+    setDependents((prev) => [...prev, newDependent]);
     setNewNombre("");
     setNewCorreo("");
     setNewParentezco(parentezcos[0]);
     Alert.alert("Éxito", "Dependiente agregado correctamente.");
   };
 
-  const deleteDependent = (id) => {
+  const deleteDependent = (id: string) => {
     Alert.alert(
       "Eliminar Dependiente",
       "¿Estás seguro de eliminar este dependiente?",
@@ -75,11 +107,7 @@ const DependentsScreen = () => {
         {
           text: "Confirmar",
           onPress: () => {
-            setDependents((prevDependents) => {
-              const newDependents = prevDependents.filter((dep) => dep.id !== id);
-              console.log("Nuevo estado de dependientes:", newDependents);
-              return newDependents;
-            });
+            setDependents((prev) => prev.filter((dep) => dep.id !== id));
             Alert.alert("Éxito", "Dependiente eliminado.");
           },
         },
@@ -87,86 +115,97 @@ const DependentsScreen = () => {
     );
   };
 
-  if (rol !== 3) {
-    return (
-      <SafeAreaView style={styles.deniedContainer}>
-        <Text style={styles.deniedText}>Acceso denegado. Solo para pacientes.</Text>
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.mainContainer}>
-      <Header nombre={getNombrePorRol()} />
-      <ScrollView style={styles.scrollContainer}>
-        <Text style={styles.screenTitle}>Gestionar Dependientes</Text>
-        <Text style={styles.sectionLabel}>Dependientes Actuales</Text>
-        {dependents.length > 0 ? (
-          dependents.map((dep) => (
-            <View key={dep.id} style={styles.dependentCard}>
-              <Text style={styles.dependentName}>{dep.nombre}</Text>
-              <Text style={styles.dependentDetail}>Parentezco: {dep.parentezco}</Text>
-              <Text style={styles.dependentDetail}>Correo: {dep.correo}</Text>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => deleteDependent(dep.id)}
-              >
-                <Text style={styles.deleteButtonText}>Eliminar</Text>
-              </TouchableOpacity>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.noDependents}>No tienes dependientes agregados.</Text>
-        )}
-        <Text style={styles.sectionLabel}>Agregar Nuevo Dependiente</Text>
-        <View style={styles.field}>
-          <Text style={styles.label}>Nombre</Text>
-          <TextInput
-            value={newNombre}
-            onChangeText={setNewNombre}
-            style={styles.input}
-            placeholder="Nombre del dependiente"
-          />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Correo</Text>
-          <TextInput
-            value={newCorreo}
-            onChangeText={setNewCorreo}
-            style={styles.input}
-            placeholder="Correo del dependiente"
-            keyboardType="email-address"
-          />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Parentezco</Text>
-          <Picker
-            selectedValue={newParentezco}
-            onValueChange={setNewParentezco}
-            style={styles.picker}
-          >
-            {parentezcos.map((par) => (
-              <Picker.Item key={par} label={par} value={par} />
-            ))}
-          </Picker>
-        </View>
-        <TouchableOpacity style={styles.addButton} onPress={addDependent}>
-          <Text style={styles.addButtonText}>Agregar Dependiente</Text>
-        </TouchableOpacity>
-      </ScrollView>
+    <SafeAreaView style={styles.safeArea}>
+      <Header nombre={loadingName ? "Cargando..." : nombreReal} />
+
+      {/* CONTENEDOR FLEXIBLE */}
+      <View style={styles.contentContainer}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.screenTitle}>Gestionar Dependientes</Text>
+
+          <Text style={styles.sectionLabel}>Dependientes Actuales</Text>
+          {dependents.length > 0 ? (
+            dependents.map((dep) => (
+              <View key={dep.id} style={styles.dependentCard}>
+                <Text style={styles.dependentName}>{dep.nombre}</Text>
+                <Text style={styles.dependentDetail}>Parentezco: {dep.parentezco}</Text>
+                <Text style={styles.dependentDetail}>Correo: {dep.correo}</Text>
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => deleteDependent(dep.id)}
+                >
+                  <Text style={styles.deleteButtonText}>Eliminar</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noDependents}>No tienes dependientes agregados.</Text>
+          )}
+
+          <Text style={styles.sectionLabel}>Agregar Nuevo Dependiente</Text>
+          <View style={styles.field}>
+            <Text style={styles.label}>Nombre</Text>
+            <TextInput
+              value={newNombre}
+              onChangeText={setNewNombre}
+              style={styles.input}
+              placeholder="Nombre del dependiente"
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Correo</Text>
+            <TextInput
+              value={newCorreo}
+              onChangeText={setNewCorreo}
+              style={styles.input}
+              placeholder="Correo del dependiente"
+              keyboardType="email-address"
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Parentezco</Text>
+            <Picker
+              selectedValue={newParentezco}
+              onValueChange={setNewParentezco}
+              style={styles.picker}
+            >
+              {parentezcos.map((par) => (
+                <Picker.Item key={par} label={par} value={par} />
+              ))}
+            </Picker>
+          </View>
+
+          {/* BOTÓN CON MARGIN BOTTOM PARA QUE NO SE TAPE */}
+          <TouchableOpacity style={styles.addButton} onPress={addDependent}>
+            <Text style={styles.addButtonText}>Agregar Dependiente</Text>
+          </TouchableOpacity>
+          <View/>
+        </ScrollView>
+      </View>
+
       <Footer />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  mainContainer: {
+  safeArea: {
     flex: 1,
     backgroundColor: "#fff",
   },
-  scrollContainer: {
+  contentContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
     padding: 20,
-    paddingBottom: 40,
   },
   screenTitle: {
     fontSize: 24,
@@ -246,7 +285,7 @@ const styles = StyleSheet.create({
   addButton: {
     backgroundColor: "#007AFF",
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: "center",
     marginTop: 20,
   },
