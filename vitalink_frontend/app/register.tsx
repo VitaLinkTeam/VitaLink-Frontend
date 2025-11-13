@@ -17,17 +17,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '@/context/AuthContext';
 import axios from 'axios';
+
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
 interface ClinicaResponse {
   id?: number;
   in_id?: number;
   nombre?: string;
 }
-
-const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
 type UserType = 'paciente' | 'medico' | 'asistente' | 'admin';
 
@@ -57,8 +56,10 @@ const RegisterScreen = () => {
   const [contrasena, setContrasena] = useState('');
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
   const [especializacionId, setEspecializacionId] = useState<number | null>(null);
+  const [especializacionNombre, setEspecializacionNombre] = useState('Selecciona especialización');
   const [userType, setUserType] = useState<UserType>('paciente');
   const [showClinicForm, setShowClinicForm] = useState(false);
+  const [showEspecializacionModal, setShowEspecializacionModal] = useState(false);
 
   const [clinicName, setClinicName] = useState('');
   const [clinicAddress, setClinicAddress] = useState('');
@@ -116,17 +117,13 @@ const RegisterScreen = () => {
     setModalMessage(msg);
     setModalVisible(true);
     if (success) {
-      setTimeout(() => {
-        setModalVisible(false);
-        // NO REDIRIGIR AQUÍ → AuthContext lo hará
-      }, 2000);
+      setTimeout(() => setModalVisible(false), 2000);
     }
   };
 
   const handleBasicUserSignup = async () => {
     try {
       const roleName = ROLE_MAP[userType];
-
       await signup(
         correo,
         contrasena,
@@ -181,6 +178,7 @@ const RegisterScreen = () => {
       const token = await getAuth().currentUser?.getIdToken();
       if (!token) throw new Error("No token");
 
+      // TU CÓDIGO ORIGINAL → FUNCIONA
       const clinicRes = await axios.post<ClinicaResponse>(
         `${BASE_URL}/api/clinicas`,
         {
@@ -208,12 +206,15 @@ const RegisterScreen = () => {
     }
   };
 
+  const selectEspecializacion = (esp: { id: number; nombre: string }) => {
+    setEspecializacionId(esp.id);
+    setEspecializacionNombre(esp.nombre);
+    setShowEspecializacionModal(false);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <ScrollView
             ref={scrollViewRef}
@@ -222,10 +223,7 @@ const RegisterScreen = () => {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.mainRectangle}>
-              <Image
-                style={styles.logo}
-                source={require('../assets/images/medical_logo_placeholder.png')}
-              />
+              <Image style={styles.logo} source={require('../assets/images/medical_logo_placeholder.png')} />
               <Text style={styles.titleText}>
                 {showClinicForm ? 'Registrar Clínica' : 'Registro'}
               </Text>
@@ -269,21 +267,17 @@ const RegisterScreen = () => {
                     <TextInput style={styles.textInput} placeholder="Contraseña" placeholderTextColor="#666" value={contrasena} onChangeText={setContrasena} secureTextEntry />
                     <TextInput style={styles.textInput} placeholder="Confirmar contraseña" placeholderTextColor="#666" value={confirmarContrasena} onChangeText={setConfirmarContrasena} secureTextEntry />
 
+                    {/* ESPECIALIZACIÓN CON LÁPIZ */}
                     {userType === 'medico' && (
-                      <View style={styles.pickerContainer}>
-                        <Picker
-                          selectedValue={especializacionId}
-                          onValueChange={(itemValue) => setEspecializacionId(itemValue as number)}
-                          style={styles.picker}
-                          dropdownIconColor="#007AFF"
-                          mode="dropdown"
-                        >
-                          <Picker.Item label="Selecciona una especialización" value={null} color="#999" />
-                          {ESPECIALIZACIONES.map((esp) => (
-                            <Picker.Item key={esp.id} label={esp.nombre} value={esp.id} color="#000" />
-                          ))}
-                        </Picker>
-                      </View>
+                      <TouchableOpacity
+                        style={styles.especializacionButton}
+                        onPress={() => setShowEspecializacionModal(true)}
+                      >
+                        <Text style={styles.especializacionText} numberOfLines={1}>
+                          {especializacionNombre}
+                        </Text>
+                        <Ionicons name="pencil" size={20} color="#007AFF" style={styles.pencilIcon} />
+                      </TouchableOpacity>
                     )}
 
                     <TouchableOpacity style={styles.registerButton} onPress={handleNext}>
@@ -320,7 +314,42 @@ const RegisterScreen = () => {
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
-      <Modal animationType="fade" transparent={true} visible={modalVisible}>
+      {/* MODAL DE ESPECIALIZACIÓN */}
+      <Modal
+        visible={showEspecializacionModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowEspecializacionModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.especializacionModal}>
+            <Text style={styles.modalTitle}>Selecciona Especialización</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {ESPECIALIZACIONES.map((esp) => (
+                <TouchableOpacity
+                  key={esp.id}
+                  style={styles.especializacionOption}
+                  onPress={() => selectEspecializacion(esp)}
+                >
+                  <Text style={styles.especializacionOptionText}>{esp.nombre}</Text>
+                  {especializacionId === esp.id && (
+                    <Ionicons name="checkmark" size={24} color="#007AFF" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setShowEspecializacionModal(false)}
+            >
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL DE MENSAJES */}
+      <Modal animationType="fade" transparent visible={modalVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalText}>{modalMessage}</Text>
@@ -353,7 +382,7 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   logo: { width: 120, height: 120, marginBottom: 15 },
-  titleText: { fontFamily: 'System', fontSize: 24, color: '#333', marginBottom: 20, fontWeight: '600' },
+  titleText: { fontSize: 24, color: '#333', marginBottom: 20, fontWeight: '600' },
   inputContainer: { width: '100%', alignItems: 'center', paddingHorizontal: 5 },
   backButton: { alignSelf: 'flex-start', marginLeft: 5, marginBottom: 15 },
   radioContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginBottom: 10 },
@@ -376,25 +405,78 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     marginBottom: 15,
-    fontFamily: 'System',
     fontSize: 16,
     color: '#333',
     paddingHorizontal: 15,
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
-  pickerContainer: {
+  especializacionButton: {
     width: '90%',
     height: 50,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F5',
     borderRadius: 10,
     marginBottom: 15,
-    justifyContent: 'center',
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    overflow: 'hidden',
   },
-  picker: { color: '#000', fontSize: 16, paddingHorizontal: 15 },
+  especializacionText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  pencilIcon: {
+    marginLeft: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  especializacionModal: {
+    width: '85%',
+    maxHeight: '70%',
+    backgroundColor: '#FFF',
+    borderRadius: 15,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  especializacionOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+  },
+  especializacionOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  closeModalButton: {
+    marginTop: 15,
+    paddingVertical: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  closeModalText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   registerButton: {
     width: '90%',
     height: 50,
@@ -406,7 +488,7 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     width: '90%',
-    height: 60,
+    height: 50,
     borderWidth: 1,
     borderColor: '#007AFF',
     borderRadius: 10,
@@ -415,20 +497,14 @@ const styles = StyleSheet.create({
     marginTop: 15,
     backgroundColor: '#FFFFFF',
   },
-  buttonText: { fontFamily: 'System', fontSize: 18, color: '#FFFFFF', textAlign: 'center', fontWeight: '500' },
+  buttonText: { fontSize: 18, color: '#FFFFFF', fontWeight: '500' },
   registerButtonText: { color: '#007AFF', fontSize: 16 },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: {
     width: '80%',
     backgroundColor: '#FFFFFF',
     borderRadius: 15,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
   },
   modalText: { fontSize: 16, color: '#333', textAlign: 'center', marginBottom: 20 },
   modalButton: { width: '50%', height: 40, backgroundColor: '#007AFF', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
