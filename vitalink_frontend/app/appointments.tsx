@@ -8,15 +8,17 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-import { Picker } from "@react-native-picker/picker";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
 import { SafeAreaView } from "react-native-safe-area-context";
 import axios from "axios";
 import { getAuth } from "firebase/auth";
+import { Ionicons } from "@expo/vector-icons";
 
 const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
@@ -38,6 +40,18 @@ const AppointmentsScreen = () => {
   const [horariosDisponibles, setHorariosDisponibles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingCitas, setLoadingCitas] = useState(false);
+
+  // === MODALES ===
+  const [showClinicModal, setShowClinicModal] = useState(false);
+  const [showSpecialtyModal, setShowSpecialtyModal] = useState(false);
+  const [showDoctorModal, setShowDoctorModal] = useState(false);
+  const [showTimeModal, setShowTimeModal] = useState(false);
+
+  // === TEXTOS MOSTRADOS EN BOTONES ===
+  const [clinicDisplay, setClinicDisplay] = useState("Selecciona clínica");
+  const [specialtyDisplay, setSpecialtyDisplay] = useState("Selecciona especialidad");
+  const [doctorDisplay, setDoctorDisplay] = useState("Selecciona doctor");
+  const [timeDisplay, setTimeDisplay] = useState("Selecciona hora");
 
   // === CACHE DE ESPECIALIDADES ===
   const doctorSpecialtyCache = useRef<Map<string, string>>(new Map());
@@ -99,6 +113,7 @@ const AppointmentsScreen = () => {
     if (!isPaciente || !selectedClinic) {
       setEspecialidades([]);
       setSelectedSpecialty(null);
+      setSpecialtyDisplay("Selecciona especialidad");
       return;
     }
     const fetchEspecialidades = async () => {
@@ -122,6 +137,7 @@ const AppointmentsScreen = () => {
     if (!isPaciente || !selectedClinic || !selectedSpecialty) {
       setDoctores([]);
       setSelectedDoctor(null);
+      setDoctorDisplay("Selecciona doctor");
       return;
     }
     const fetchDoctores = async () => {
@@ -163,6 +179,7 @@ const AppointmentsScreen = () => {
       setHorariosDisponibles([]);
       setSelectedDate("");
       setSelectedTime("");
+      setTimeDisplay("Selecciona hora");
       return;
     }
     const fetchDisponibilidad = async () => {
@@ -251,7 +268,6 @@ const AppointmentsScreen = () => {
           return;
         }
 
-        // PRE-CARGAR ESPECIALIDADES
         await preloadDoctorSpecialties(citasRaw, headers);
 
         const citasConNombres = await Promise.all(
@@ -354,6 +370,40 @@ const AppointmentsScreen = () => {
       .filter((t, i, a) => a.indexOf(t) === i);
   }, [selectedDate, horariosDisponibles]);
 
+  // === SELECCIONES ===
+  const selectClinic = (clinica: any) => {
+    setSelectedClinic(clinica);
+    setClinicDisplay(clinica.nombre);
+    setSelectedSpecialty(null);
+    setSpecialtyDisplay("Selecciona especialidad");
+    setSelectedDoctor(null);
+    setDoctorDisplay("Selecciona doctor");
+    setSelectedDate("");
+    setShowClinicModal(false);
+  };
+
+  const selectSpecialty = (esp: any) => {
+    setSelectedSpecialty(esp.id);
+    setSpecialtyDisplay(esp.nombre);
+    setSelectedDoctor(null);
+    setDoctorDisplay("Selecciona doctor");
+    setSelectedDate("");
+    setShowSpecialtyModal(false);
+  };
+
+  const selectDoctor = (doc: any) => {
+    setSelectedDoctor(doc);
+    setDoctorDisplay(doc.nombre);
+    setSelectedDate("");
+    setShowDoctorModal(false);
+  };
+
+  const selectTime = (time: string) => {
+    setSelectedTime(time);
+    setTimeDisplay(time);
+    setShowTimeModal(false);
+  };
+
   // === AGENDAR CITA ===
   const addAppointment = async () => {
     if (!selectedClinic || !selectedSpecialty || !selectedDoctor || !selectedDate || !selectedTime) {
@@ -430,10 +480,14 @@ const AppointmentsScreen = () => {
   // === RESETEAR SELECCIÓN ===
   const resetSelection = () => {
     setSelectedClinic(null);
+    setClinicDisplay("Selecciona clínica");
     setSelectedSpecialty(null);
+    setSpecialtyDisplay("Selecciona especialidad");
     setSelectedDoctor(null);
+    setDoctorDisplay("Selecciona doctor");
     setSelectedDate("");
     setSelectedTime("");
+    setTimeDisplay("Selecciona hora");
   };
 
   // === RENDER CITA ===
@@ -499,22 +553,15 @@ const AppointmentsScreen = () => {
                   {clinicas.length > 0 && (
                     <View style={styles.selectionCard}>
                       <Text style={styles.sectionTitle}>1. Clínica</Text>
-                      <Picker
-                        selectedValue={selectedClinic?.id || null}
-                        onValueChange={(v) => {
-                          const c = clinicas.find(x => x.id === v);
-                          setSelectedClinic(c || null);
-                          setSelectedSpecialty(null);
-                          setSelectedDoctor(null);
-                          setSelectedDate("");
-                        }}
-                        style={styles.picker}
+                      <TouchableOpacity
+                        style={styles.selectorButton}
+                        onPress={() => setShowClinicModal(true)}
                       >
-                        <Picker.Item label="-- Seleccione clínica --" value={null} />
-                        {clinicas.map(c => (
-                          <Picker.Item key={c.id} label={c.nombre} value={c.id} />
-                        ))}
-                      </Picker>
+                        <Text style={styles.selectorText} numberOfLines={1}>
+                          {clinicDisplay}
+                        </Text>
+                        <Ionicons name="pencil" size={20} color="#007AFF" />
+                      </TouchableOpacity>
                     </View>
                   )}
 
@@ -522,20 +569,15 @@ const AppointmentsScreen = () => {
                   {selectedClinic && (
                     <View style={styles.selectionCard}>
                       <Text style={styles.sectionTitle}>2. Especialidad</Text>
-                      <Picker
-                        selectedValue={selectedSpecialty}
-                        onValueChange={(v) => {
-                          setSelectedSpecialty(v);
-                          setSelectedDoctor(null);
-                          setSelectedDate("");
-                        }}
-                        style={styles.picker}
+                      <TouchableOpacity
+                        style={styles.selectorButton}
+                        onPress={() => setShowSpecialtyModal(true)}
                       >
-                        <Picker.Item label="-- Seleccione --" value={null} />
-                        {especialidades.map(e => (
-                          <Picker.Item key={e.id} label={e.nombre} value={e.id} />
-                        ))}
-                      </Picker>
+                        <Text style={styles.selectorText} numberOfLines={1}>
+                          {specialtyDisplay}
+                        </Text>
+                        <Ionicons name="pencil" size={20} color="#007AFF" />
+                      </TouchableOpacity>
                     </View>
                   )}
 
@@ -543,20 +585,15 @@ const AppointmentsScreen = () => {
                   {selectedSpecialty && doctores.length > 0 && (
                     <View style={styles.selectionCard}>
                       <Text style={styles.sectionTitle}>3. Doctor</Text>
-                      <Picker
-                        selectedValue={selectedDoctor?.uid || null}
-                        onValueChange={(v) => {
-                          const d = doctores.find(x => x.uid === v);
-                          setSelectedDoctor(d || null);
-                          setSelectedDate("");
-                        }}
-                        style={styles.picker}
+                      <TouchableOpacity
+                        style={styles.selectorButton}
+                        onPress={() => setShowDoctorModal(true)}
                       >
-                        <Picker.Item label="-- Seleccione --" value={null} />
-                        {doctores.map(d => (
-                          <Picker.Item key={d.uid} label={d.nombre} value={d.uid} />
-                        ))}
-                      </Picker>
+                        <Text style={styles.selectorText} numberOfLines={1}>
+                          {doctorDisplay}
+                        </Text>
+                        <Ionicons name="pencil" size={20} color="#007AFF" />
+                      </TouchableOpacity>
                     </View>
                   )}
 
@@ -584,15 +621,15 @@ const AppointmentsScreen = () => {
                         <View style={styles.dateSelectionCard}>
                           <Text style={styles.selectedDate}>Fecha: {formatDate(selectedDate)}</Text>
                           <Text style={styles.label}>Hora:</Text>
-                          <Picker
-                            selectedValue={selectedTime}
-                            onValueChange={(value) => value && setSelectedTime(value)}
-                            style={styles.picker}
+                          <TouchableOpacity
+                            style={styles.selectorButton}
+                            onPress={() => setShowTimeModal(true)}
                           >
-                            {availableTimes.map(t => (
-                              <Picker.Item key={t} label={t} value={t} />
-                            ))}
-                          </Picker>
+                            <Text style={styles.selectorText} numberOfLines={1}>
+                              {timeDisplay}
+                            </Text>
+                            <Ionicons name="pencil" size={20} color="#007AFF" />
+                          </TouchableOpacity>
 
                           <View style={styles.actionButtons}>
                             <TouchableOpacity
@@ -645,12 +682,109 @@ const AppointmentsScreen = () => {
         />
       </View>
 
+      {/* MODALES */}
+      {/* Clínica */}
+      <Modal visible={showClinicModal} transparent animationType="slide" onRequestClose={() => setShowClinicModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Selecciona Clínica</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {clinicas.map(c => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.modalOption}
+                  onPress={() => selectClinic(c)}
+                >
+                  <Text style={styles.modalOptionText}>{c.nombre}</Text>
+                  {selectedClinic?.id === c.id && <Ionicons name="checkmark" size={24} color="#007AFF" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setShowClinicModal(false)}>
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Especialidad */}
+      <Modal visible={showSpecialtyModal} transparent animationType="slide" onRequestClose={() => setShowSpecialtyModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Selecciona Especialidad</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {especialidades.map(e => (
+                <TouchableOpacity
+                  key={e.id}
+                  style={styles.modalOption}
+                  onPress={() => selectSpecialty(e)}
+                >
+                  <Text style={styles.modalOptionText}>{e.nombre}</Text>
+                  {selectedSpecialty === e.id && <Ionicons name="checkmark" size={24} color="#007AFF" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setShowSpecialtyModal(false)}>
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Doctor */}
+      <Modal visible={showDoctorModal} transparent animationType="slide" onRequestClose={() => setShowDoctorModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Selecciona Doctor</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {doctores.map(d => (
+                <TouchableOpacity
+                  key={d.uid}
+                  style={styles.modalOption}
+                  onPress={() => selectDoctor(d)}
+                >
+                  <Text style={styles.modalOptionText}>{d.nombre}</Text>
+                  {selectedDoctor?.uid === d.uid && <Ionicons name="checkmark" size={24} color="#007AFF" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setShowDoctorModal(false)}>
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Hora */}
+      <Modal visible={showTimeModal} transparent animationType="slide" onRequestClose={() => setShowTimeModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Selecciona Hora</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {availableTimes.map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={styles.modalOption}
+                  onPress={() => selectTime(t)}
+                >
+                  <Text style={styles.modalOptionText}>{t}</Text>
+                  {selectedTime === t && <Ionicons name="checkmark" size={24} color="#007AFF" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setShowTimeModal(false)}>
+              <Text style={styles.closeModalText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Footer />
     </SafeAreaView>
   );
 };
 
-// === ESTILOS (sin cambios) ===
+// === ESTILOS ===
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
   contentContainer: { padding: 20, paddingBottom: 100, flexGrow: 1 },
@@ -664,7 +798,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: "bold", color: "#007AFF", marginBottom: 8, textAlign: "center" },
   subtitle: { fontSize: 16, color: "#666", textAlign: "center" },
   sectionTitle: { fontSize: 18, fontWeight: "700", color: "#007AFF", marginBottom: 16, textAlign: "center" },
-  picker: { height: 50, backgroundColor: "#f8f9fa", borderRadius: 12 },
   calendar: { borderRadius: 12 },
   dateSelectionCard: { backgroundColor: "#f0f8ff", padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "#007AFF" },
   selectedDate: { fontSize: 16, color: "#007AFF", marginBottom: 16, textAlign: "center", fontWeight: "600" },
@@ -685,6 +818,70 @@ const styles = StyleSheet.create({
   cancelButton: { backgroundColor: "#FF3B30", paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, minWidth: 80, alignItems: "center" },
   cancelButtonText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   canceledText: { textDecorationLine: "line-through", color: "#666" },
+
+  // NUEVOS ESTILOS (igual que RegisterScreen)
+  selectorButton: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  selectorText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '85%',
+    maxHeight: '70%',
+    backgroundColor: '#FFF',
+    borderRadius: 15,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+  },
+  modalOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  closeModalButton: {
+    marginTop: 15,
+    paddingVertical: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  closeModalText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
 });
 
 export default AppointmentsScreen;
