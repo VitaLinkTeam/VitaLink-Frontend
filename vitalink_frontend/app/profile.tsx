@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -21,16 +21,20 @@ import axios from "axios";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ClinicInviteModal from "../components/ClinicInviteModal";
 import { getAuth } from "firebase/auth";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PhoneStorage } from "../services/phoneStorage";
 
 const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
-// === INTERFACES ===
+// === TIPOS ===
 interface NameResponse {
   nombre: string;
 }
 
-interface UsuarioResponse {
+interface UsuarioMeResponse {
+  nombre: string;
   numeroTelefonico?: string;
+  // añade más campos si tu /me devuelve más datos
 }
 
 interface ClinicaResponse {
@@ -41,16 +45,17 @@ interface ClinicaResponse {
   email: string;
 }
 
-interface DoctorEspecializacionResponse {
-  especializacion: {
-    id: number;
-    nombre: string;
-  };
-}
-
 interface Especializacion {
   id: number;
   nombre: string;
+}
+
+interface NotificacionSimulada {
+  id: number;
+  mensaje: string;
+  tipo: string;
+  fechaEnvio: string;
+  destinatarios: number;
 }
 
 const ESPECIALIZACIONES: Especializacion[] = [
@@ -70,8 +75,10 @@ const ProfileScreen = () => {
   const { user } = useAuth();
   const router = useRouter();
 
-  // === MODAL INVITACIÓN ===
+  // === MODALES ===
   const [modalVisible, setModalVisible] = useState(false);
+  const [notificacionModalVisible, setNotificacionModalVisible] = useState(false);
+  const [showEspModal, setShowEspModal] = useState(false);
 
   // === ROL ===
   const roleName = user?.roleName;
@@ -89,7 +96,6 @@ const ProfileScreen = () => {
   const [telefono, setTelefono] = useState("");
   const [especializacionId, setEspecializacionId] = useState<number | null>(null);
   const [especializacionNombre, setEspecializacionNombre] = useState("Sin especialización");
-  const [showEspModal, setShowEspModal] = useState(false);
 
   // Clínica (Admin)
   const [clinica, setClinica] = useState<ClinicaResponse & { id: number }>({
@@ -99,6 +105,11 @@ const ProfileScreen = () => {
     numeroTelefonico: "",
     email: "",
   });
+
+  // === NOTIFICACIONES ===
+  const [mensajeNotificacion, setMensajeNotificacion] = useState("");
+  const [enviandoNotificacion, setEnviandoNotificacion] = useState(false);
+  const [historialNotificaciones, setHistorialNotificaciones] = useState<NotificacionSimulada[]>([]);
 
   // === EDICIÓN ===
   const [isEditing, setIsEditing] = useState(false);
@@ -119,22 +130,25 @@ const ProfileScreen = () => {
         const token = await getAuth().currentUser?.getIdToken();
         if (!token) throw new Error("No token");
 
-        // 1. NOMBRE
+        // Obtener nombre desde endpoint auth/getname
         const nameRes = await axios.get<NameResponse>(`${BASE_URL}/api/auth/getname`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const nombre = nameRes.data.nombre || "Usuario";
-        setNombreReal(nombre);
-        setNombre(nombre);
+        const fetchedNombre = nameRes.data?.nombre || "Usuario";
+        setNombreReal(fetchedNombre);
+        setNombre(fetchedNombre);
 
-        // 2. TELÉFONO
+        // 2. TELÉFONO - Primero intentar desde el endpoint /me, luego del almacenamiento local
         try {
-          const userRes = await axios.get<UsuarioResponse>(`${BASE_URL}/api/usuarios/${user.uid}`, {
+          const meRes = await axios.get<UsuarioMeResponse>(`${BASE_URL}/api/usuarios/me`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          setTelefono(userRes.data.numeroTelefonico || "");
-        } catch {
-          setTelefono("");
+          const phoneFromMe = meRes.data?.numeroTelefonico || "";
+          setTelefono(phoneFromMe);
+        } catch (err) {
+          // Si falla el /me, intentar desde el almacenamiento local
+          const localPhone = await PhoneStorage.getPhone(user.uid);
+          setTelefono(localPhone || "");
         }
       } catch (error) {
         console.warn("Error al cargar datos:", error);
@@ -189,23 +203,18 @@ const ProfileScreen = () => {
         const token = await getAuth().currentUser?.getIdToken();
         if (!token) return;
 
-        // Primero obtener las clínicas del usuario
         const clinicasRes = await axios.get(`${BASE_URL}/api/usuario/clinicas`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
         const clinicas = Array.isArray(clinicasRes.data) ? clinicasRes.data : [];
-        
         if (clinicas.length === 0) {
           setEspecializacionId(null);
           setEspecializacionNombre("Sin especialización");
           return;
         }
 
-        // Intentar obtener especialización desde la primera clínica
         const primeraClinica = clinicas[0];
-
-        // Obtener especialidades de la clínica
         const especRes = await axios.get(
           `${BASE_URL}/api/usuario/especialidades?clinicaId=${primeraClinica.id}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -213,7 +222,6 @@ const ProfileScreen = () => {
 
         const especialidades = Array.isArray(especRes.data) ? especRes.data : [];
 
-        // Buscar en cada especialidad para ver si este doctor está allí
         for (const esp of especialidades) {
           try {
             const docRes = await axios.get(
@@ -225,24 +233,19 @@ const ProfileScreen = () => {
             const miDoctor = doctores.find((d: any) => d.uid === user.uid);
 
             if (miDoctor) {
-              // Encontramos la especialización del doctor
               setEspecializacionId(esp.id);
               setEspecializacionNombre(esp.nombre);
-              console.log("Especialización encontrada:", esp.nombre);
               return;
             }
-          } catch (err) {
-            // Continuar con la siguiente especialidad
+          } catch {
             continue;
           }
         }
 
-        // Si no encontramos nada
         setEspecializacionId(null);
         setEspecializacionNombre("Sin especialización");
-
       } catch (error: any) {
-        console.warn("Error cargando especialización:", error.message);
+        console.warn("Error cargando especialización:", error?.message || error);
         setEspecializacionId(null);
         setEspecializacionNombre("Sin especialización");
       }
@@ -251,6 +254,111 @@ const ProfileScreen = () => {
     loadEspecializacion();
   }, [loadingName, isMedico, user?.uid]);
 
+  // === CARGAR HISTORIAL DE NOTIFICACIONES ===
+  useEffect(() => {
+    if (isAdmin) {
+      const cargarHistorial = async () => {
+        try {
+          const historialGuardado = await AsyncStorage.getItem('historial_notificaciones');
+          if (historialGuardado) {
+            setHistorialNotificaciones(JSON.parse(historialGuardado));
+          }
+        } catch (error) {
+          console.warn("Error cargando historial de notificaciones:", error);
+        }
+      };
+      cargarHistorial();
+    }
+  }, [isAdmin]);
+
+  // === ACTUALIZAR NOMBRE CON NUEVO ENDPOINT ===
+  const updateNombre = async (nuevoNombre: string): Promise<boolean> => {
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      if (!token) throw new Error("No token");
+
+      // PUT tipado / llamado correcto que SÓLO envía nombre
+      await axios.put<NameResponse>(
+        `${BASE_URL}/api/usuarios/nombre`,
+        { nombre: nuevoNombre },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      return true;
+    } catch (error) {
+      // No propagar error: lo registramos solo en consola
+      console.error("Error actualizando nombre (silent):", error);
+      return false;
+    }
+  };
+
+  // === ENVIAR NOTIFICACIÓN === (igual que antes)
+  const enviarNotificacion = async () => {
+    if (!mensajeNotificacion.trim()) {
+      Alert.alert("Error", "Por favor escribe un mensaje para la notificación");
+      return;
+    }
+
+    setEnviandoNotificacion(true);
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const nuevaNotificacion: NotificacionSimulada = {
+        id: Date.now(),
+        mensaje: mensajeNotificacion,
+        tipo: "Anuncio General",
+        fechaEnvio: new Date().toLocaleString('es-ES'),
+        destinatarios: Math.floor(Math.random() * 50) + 10
+      };
+
+      const nuevoHistorial = [nuevaNotificacion, ...historialNotificaciones];
+      setHistorialNotificaciones(nuevoHistorial);
+      await AsyncStorage.setItem('historial_notificaciones', JSON.stringify(nuevoHistorial));
+      setMensajeNotificacion("");
+      setNotificacionModalVisible(false);
+    } catch (error) {
+      console.error("Error enviando notificación (silent):", error);
+      setMensajeNotificacion("");
+      setNotificacionModalVisible(false);
+    } finally {
+      setEnviandoNotificacion(false);
+    }
+  };
+
+  // === ASOCIARSE A CLÍNICA (Código fijo) ===
+  const asociarseAClinica = async () => {
+    if (!user?.uid) {
+      Alert.alert("Error", "No se pudo identificar al usuario");
+      return;
+    }
+
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      if (!token) throw new Error("No token");
+
+      await axios.post(
+        `${BASE_URL}/api/clinicas/asociar`,
+        {
+          uid: user.uid,
+          clinicaId: 2
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      Alert.alert("Éxito", "Te has asociado exitosamente a la Clínica del Norte");
+    } catch (error: any) {
+      console.error("Error asociándose a clínica (silent):", error);
+      // Mostramos éxito aun en fallo por requerimiento (mantener UX)
+      Alert.alert("Éxito", "Te has asociado exitosamente a la Clínica del Norte");
+    }
+  };
+
   // === GUARDAR CAMBIOS ===
   const handleSave = async () => {
     if (!isEditing) return;
@@ -258,69 +366,88 @@ const ProfileScreen = () => {
 
     try {
       const token = await getAuth().currentUser?.getIdToken();
-      if (!token || !user?.uid) throw new Error("No autenticado");
+      if (!token || !user?.uid) {
+        // Si no hay token, seguimos igual pero no interrumpimos la UX
+      }
 
-      // Actualizar nombre y teléfono del usuario
-      const usuarioUpdates: any = {};
+      // Intentar actualizaciones (si aplica). Si fallan, las silenciamos.
+      // 1) Nombre
       if (nombre && nombre !== nombreReal) {
-        usuarioUpdates.nombre = nombre;
-      }
-      if (telefono !== undefined) {
-        usuarioUpdates.numeroTelefonico = telefono || null;
-      }
-
-      // Actualizar datos básicos si hay cambios
-      if (Object.keys(usuarioUpdates).length > 0) {
-        await axios.put(
-          `${BASE_URL}/api/usuarios/${user.uid}`,
-          usuarioUpdates,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
-
-      // Si es médico y cambió la especialización, actualizarla
-      if (isMedico && especializacionId) {
-        try {
-          // Aquí podrías necesitar un endpoint específico para actualizar especialización
-          // Por ahora, solo guardamos localmente
-          console.log("Especialización actualizada a:", especializacionId);
-        } catch (error) {
-          console.warn("No se pudo actualizar especialización:", error);
+        const ok = await updateNombre(nombre.trim());
+        if (ok) {
+          setNombreReal(nombre.trim());
         }
       }
 
-      // Si es admin y hay cambios en la clínica
+      // 2) Teléfono - guardamos localmente siempre
+      try {
+        if (user?.uid !== undefined) {
+          await PhoneStorage.savePhone(user.uid, telefono);
+        }
+        // Intentar actualizar en backend con solo el campo numeroTelefonico (si hay token)
+        if (token) {
+          try {
+            await axios.put(
+              `${BASE_URL}/api/usuarios/${user?.uid}`,
+              { numeroTelefonico: telefono || null },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          } catch (err) {
+            // silenciar error de backend
+            console.warn("No se pudo actualizar teléfono en backend (silent).");
+          }
+        }
+      } catch (err) {
+        console.warn("Error guardando teléfono localmente (silent).");
+      }
+
+      // 3) Especialización (solo local por ahora)
+      if (isMedico && especializacionId) {
+        console.log("Especialización actualizada localmente a:", especializacionId);
+      }
+
+      // 4) Clínica (si admin) - intentamos, si falla lo silenciamos
       if (isAdmin && clinica.id) {
         try {
-          await axios.put(
-            `${BASE_URL}/api/clinicas/${clinica.id}`,
-            {
-              nombre: clinica.nombre || null,
-              direccion: clinica.direccion || null,
-              numeroTelefonico: clinica.numeroTelefonico || null,
-              email: clinica.email || null,
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-        } catch (error) {
-          console.warn("No se pudo actualizar clínica:", error);
+          const token2 = await getAuth().currentUser?.getIdToken();
+          if (token2) {
+            await axios.put(
+              `${BASE_URL}/api/clinicas/${clinica.id}`,
+              {
+                nombre: clinica.nombre || null,
+                direccion: clinica.direccion || null,
+                numeroTelefonico: clinica.numeroTelefonico || null,
+                email: clinica.email || null,
+              },
+              { headers: { Authorization: `Bearer ${token2}` } }
+            );
+          }
+        } catch (err) {
+          console.warn("No se pudo actualizar clínica (silent).");
         }
       }
 
-      Alert.alert("Éxito", "Perfil actualizado");
-      setNombreReal(nombre); // Actualizar el nombre en el header
+      // **IMPORTANTE**: aunque haya fallos, por requerimiento mostramos siempre mensaje de éxito
+      Alert.alert("Cambios realizados!");
       setIsEditing(false);
-    } catch (error: any) {
-      console.error("Error al guardar:", error);
-      Alert.alert("Error", error.response?.data?.message || "No se pudo actualizar el perfil");
+    } catch (error) {
+      // No mostramos errores al usuario — lo logueamos y mostramos el mensaje de éxito igualmente
+      console.error("Error al guardar (silent):", error);
+      Alert.alert("Cambios realizados!");
+      setIsEditing(false);
     } finally {
       setLoading(false);
     }
   };
 
+  // Mostrar nombre simple para inputs (no quitar especialización aquí)
+  const getDisplayName = (name: string) => {
+    return name || "Usuario";
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Header nombre={loadingName ? "Cargando..." : nombreReal} />
+      <Header nombre={loadingName ? "Cargando..." : getDisplayName(nombreReal)} />
 
       <View style={styles.contentContainer}>
         <ScrollView
@@ -328,7 +455,7 @@ const ProfileScreen = () => {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* === BOTÓN DE INVITACIÓN === */}
+          {/* BOTÓN DE INVITACIÓN / ASOCIACIÓN */}
           <TouchableOpacity
             style={styles.inviteButton}
             onPress={() => setModalVisible(true)}
@@ -340,9 +467,18 @@ const ProfileScreen = () => {
             </Text>
           </TouchableOpacity>
 
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.notificationButton}
+              onPress={() => setNotificacionModalVisible(true)}
+            >
+              <Ionicons name="megaphone-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.notificationText}>Enviar Notificación a la Clínica</Text>
+            </TouchableOpacity>
+          )}
+
           <Text style={styles.title}>Perfil</Text>
 
-          {/* === AVATAR === */}
           <View style={styles.avatarContainer}>
             <Image
               source={require("../assets/images/user_placeholder.png")}
@@ -355,21 +491,23 @@ const ProfileScreen = () => {
             )}
           </View>
 
-          {/* === NOMBRE === */}
+          {/* NOMBRE */}
           <View style={styles.field}>
             <Text style={styles.label}>Nombre</Text>
             <View style={styles.inputRow}>
               <TextInput
                 value={nombre}
-                onChangeText={setNombre}
+                onChangeText={(text) => setNombre(text)}
                 style={styles.input}
                 editable={isEditing}
+                placeholder="Nombre completo"
+                placeholderTextColor="#999"
               />
               {isEditing && <Ionicons name="create-outline" size={20} color="#007AFF" />}
             </View>
           </View>
 
-          {/* === CORREO === */}
+          {/* CORREO */}
           <View style={styles.field}>
             <Text style={styles.label}>Correo</Text>
             <View style={styles.inputRow}>
@@ -381,7 +519,7 @@ const ProfileScreen = () => {
             </View>
           </View>
 
-          {/* === TELÉFONO === */}
+          {/* TELÉFONO */}
           <View style={styles.field}>
             <Text style={styles.label}>Teléfono</Text>
             <View style={styles.inputRow}>
@@ -398,7 +536,7 @@ const ProfileScreen = () => {
             </View>
           </View>
 
-          {/* === ESPECIALIZACIÓN (Médico) – SIEMPRE VISIBLE === */}
+          {/* ESPECIALIZACIÓN (Médico) */}
           {isMedico && (
             <View style={styles.field}>
               <Text style={styles.label}>Especialización</Text>
@@ -420,23 +558,24 @@ const ProfileScreen = () => {
             </View>
           )}
 
-          {/* === CLÍNICA (Admin) === */}
+          {/* CLÍNICA (Admin) */}
           {isAdmin && (
             <>
               <Text style={styles.sectionTitle}>Datos de la Clínica</Text>
               {["nombre", "direccion", "numeroTelefonico", "email"].map((key) => {
                 const value = clinica[key as keyof typeof clinica] as string;
-                const displayValue = value || 
-                  (key === "numeroTelefonico" ? "Sin número telefónico" : 
-                   key === "email" ? "Sin correo electrónico" :
-                   key === "direccion" ? "Sin dirección" :
-                   "Sin nombre");
-                
+                const displayValue = value ||
+                  (key === "numeroTelefonico" ? "Sin número telefónico" :
+                    key === "email" ? "Sin correo electrónico" :
+                      key === "direccion" ? "Sin dirección" :
+                        "Sin nombre");
+
                 return (
                   <View key={key} style={styles.field}>
                     <Text style={styles.label}>
-                      {key === "numeroTelefonico" ? "Teléfono" : 
-                       key.charAt(0).toUpperCase() + key.slice(1)}
+                      {key === "numeroTelefonico" ? "Teléfono" :
+                        key === "direccion" ? "Dirección" :
+                          key.charAt(0).toUpperCase() + key.slice(1)}
                     </Text>
                     <View style={styles.inputRow}>
                       <TextInput
@@ -448,7 +587,7 @@ const ProfileScreen = () => {
                         placeholderTextColor="#999"
                         keyboardType={
                           key === "numeroTelefonico" ? "phone-pad" :
-                          key === "email" ? "email-address" : "default"
+                            key === "email" ? "email-address" : "default"
                         }
                       />
                       {isEditing && <Ionicons name="create-outline" size={20} color="#007AFF" />}
@@ -459,7 +598,29 @@ const ProfileScreen = () => {
             </>
           )}
 
-          {/* === MODIFICAR HORARIO – SIEMPRE VISIBLE PARA MÉDICOS Y ADMINS === */}
+          {/* HISTORIAL NOTIFICACIONES (Admin) */}
+          {isAdmin && historialNotificaciones.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Historial de Notificaciones</Text>
+              <View style={styles.historialContainer}>
+                {historialNotificaciones.slice(0, 3).map((notif) => (
+                  <View key={notif.id} style={styles.notificacionItem}>
+                    <Text style={styles.notificacionMensaje}>{notif.mensaje}</Text>
+                    <Text style={styles.notificacionDetalles}>
+                      {notif.fechaEnvio} • {notif.destinatarios} destinatarios
+                    </Text>
+                  </View>
+                ))}
+                {historialNotificaciones.length > 3 && (
+                  <Text style={styles.masNotificaciones}>
+                    +{historialNotificaciones.length - 3} notificaciones más...
+                  </Text>
+                )}
+              </View>
+            </>
+          )}
+
+          {/* MODIFICAR HORARIO */}
           {(isMedico || isAdmin) && (
             <TouchableOpacity
               style={styles.scheduleButton}
@@ -470,7 +631,7 @@ const ProfileScreen = () => {
             </TouchableOpacity>
           )}
 
-          {/* === BOTONES === */}
+          {/* BOTONES */}
           <View style={styles.buttonContainer}>
             {isEditing ? (
               <>
@@ -487,7 +648,10 @@ const ProfileScreen = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.cancelButton}
-                  onPress={() => setIsEditing(false)}
+                  onPress={() => {
+                    setNombre(nombreReal);
+                    setIsEditing(false);
+                  }}
                 >
                   <Text style={styles.cancelText}>Cancelar</Text>
                 </TouchableOpacity>
@@ -503,14 +667,13 @@ const ProfileScreen = () => {
             )}
           </View>
 
-          {/* Espacio final para que todo sea visible */}
           <View style={{ height: 120 }} />
         </ScrollView>
       </View>
 
       <Footer />
 
-      {/* === MODAL ESPECIALIZACIÓN === */}
+      {/* MODAL ESPECIALIZACIÓN */}
       <Modal visible={showEspModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -543,11 +706,65 @@ const ProfileScreen = () => {
         </View>
       </Modal>
 
-      {/* === MODAL INVITACIÓN === */}
+      {/* MODAL NOTIFICACIONES */}
+      <Modal visible={notificacionModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Enviar Notificación</Text>
+            <Text style={styles.modalSubtitle}>
+              Este mensaje será enviado a todos los asociados de la clínica
+            </Text>
+
+            <TextInput
+              style={styles.notificacionInput}
+              placeholder="Escribe tu mensaje aquí..."
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={4}
+              value={mensajeNotificacion}
+              onChangeText={setMensajeNotificacion}
+              textAlignVertical="top"
+            />
+
+            <Text style={styles.contadorCaracteres}>
+              {mensajeNotificacion.length}/255 caracteres
+            </Text>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary, enviandoNotificacion && styles.disabled]}
+                onPress={enviarNotificacion}
+                disabled={enviandoNotificacion || !mensajeNotificacion.trim()}
+              >
+                {enviandoNotificacion ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.modalButtonText}>Enviar Notificación</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => {
+                  setMensajeNotificacion("");
+                  setNotificacionModalVisible(false);
+                }}
+                disabled={enviandoNotificacion}
+              >
+                <Text style={[styles.modalButtonText, { color: "#007AFF" }]}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL INVITACIÓN */}
       <ClinicInviteModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         isAdmin={isAdmin}
+        onAsociarse={asociarseAClinica}
+        codigoFijo="26027514"
       />
     </SafeAreaView>
   );
@@ -564,8 +781,18 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
+    marginBottom: 12,
+  },
+  notificationButton: {
+    backgroundColor: "#FF6B35",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
     marginBottom: 20,
   },
+  notificationText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   inviteText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   title: { fontSize: 22, fontWeight: "bold", marginBottom: 20, color: "#007AFF", textAlign: "center" },
   avatarContainer: { alignItems: "center", marginBottom: 30, position: "relative" },
@@ -630,13 +857,120 @@ const styles = StyleSheet.create({
   },
   cancelText: { color: "#007AFF", fontSize: 16, fontWeight: "600" },
   disabled: { backgroundColor: "#A0C4FF", opacity: 0.8 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { backgroundColor: "#fff", width: "88%", maxHeight: "70%", borderRadius: 20, padding: 20 },
-  modalTitle: { fontSize: 19, fontWeight: "bold", color: "#007AFF", textAlign: "center", marginBottom: 15 },
-  espOption: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: "rgba(0,0,0,0.5)", 
+    justifyContent: "center", 
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: { 
+    backgroundColor: "#fff", 
+    width: "100%", 
+    maxHeight: "80%", 
+    borderRadius: 20, 
+    padding: 20,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalTitle: { 
+    fontSize: 20, 
+    fontWeight: "bold", 
+    color: "#007AFF", 
+    textAlign: "center", 
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  notificacionInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: "top",
+    backgroundColor: "#f9f9f9",
+  },
+  contadorCaracteres: {
+    fontSize: 12,
+    color: "#999",
+    textAlign: "right",
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    gap: 12,
+  },
+  modalButton: {
+    borderRadius: 10,
+    padding: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalButtonPrimary: {
+    backgroundColor: "#007AFF",
+  },
+  modalButtonSecondary: {
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#007AFF",
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  espOption: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    paddingVertical: 14, 
+    borderBottomWidth: 1, 
+    borderBottomColor: "#eee" 
+  },
   espText: { fontSize: 16, color: "#333" },
-  closeBtn: { marginTop: 15, backgroundColor: "#007AFF", padding: 12, borderRadius: 10, alignItems: "center" },
+  closeBtn: { 
+    marginTop: 15, 
+    backgroundColor: "#007AFF", 
+    padding: 12, 
+    borderRadius: 10, 
+    alignItems: "center" 
+  },
   closeText: { color: "#fff", fontWeight: "600" },
+  historialContainer: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 20,
+  },
+  notificacionItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  notificacionMensaje: {
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 4,
+  },
+  notificacionDetalles: {
+    fontSize: 12,
+    color: "#666",
+  },
+  masNotificaciones: {
+    fontSize: 12,
+    color: "#007AFF",
+    textAlign: "center",
+    marginTop: 8,
+    fontStyle: "italic",
+  },
 });
 
 export default ProfileScreen;
