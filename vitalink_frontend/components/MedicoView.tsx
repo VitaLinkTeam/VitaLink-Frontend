@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
+import { getAuth } from 'firebase/auth';
 
 const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
@@ -31,11 +32,12 @@ const MedicoView = () => {
     const [citas, setCitas] = useState<Cita[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [search, setSearch] = useState<string>("");
-    const { token } = useAuth();
-
+    const auth = getAuth();
+    const user = auth.currentUser;
 
     const fetchCitas = async () => {
         try {
+          const token = await user.getIdToken();
             setLoading(true);
 
 
