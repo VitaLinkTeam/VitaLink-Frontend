@@ -56,6 +56,48 @@ const MedicoView = () => {
             }
 
             const data: Cita[] = await response.json();
+
+             const citasConNombre = await Promise.all(
+                  data.map(async (cita) => {
+                    try {
+                      const respNombre = await fetch(
+                        `${BASE_URL}/api/auth/getname/${cita.paciente}`,
+                        {
+                          method: "GET",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`, // mismo token
+                          },
+                        }
+                      );
+
+                      if (!respNombre.ok) {
+                        console.error(
+                          `No se pudo obtener el nombre para paciente ${cita.paciente}`
+                        );
+                        return cita; // devolvemos la cita tal cual si falla
+                      }
+
+                      // Ajusta según lo que devuelva tu backend:
+                      // Si devuelve un string plano:
+                      const dataNombre: { nombre: string; uid: string } =
+                                  await respNombre.json();
+
+                      // Si devolviera JSON tipo { name: "Juan Pérez" } sería:
+                      // const { name: nombrePaciente } = await respNombre.json();
+
+                      return {
+                        ...cita,
+                        paciente: dataNombre.nombre, // aquí sobreescribimos el campo con el nombre
+                      };
+                    } catch (e) {
+                      console.error("Error al obtener nombre de paciente:", e);
+                      return cita;
+                    }
+                  })
+                );
+
+
             setCitas(data);
         } catch (error: any) {
             console.error("Error al obtener citas:", error);
