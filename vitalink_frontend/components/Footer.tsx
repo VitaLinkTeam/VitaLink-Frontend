@@ -34,7 +34,7 @@ const rol = roleNameToRol(user?.roleName);
       ? [
           { icon: "home-outline", label: "Inicio", route: "/HomeScreen" },
           { icon: "calendar-outline", label: "Citas", route: "/appointments" },
-          { icon: "mail-outline", label: "Inbox", route: "/inbox" },
+          { icon: "mail-outline", label: "Inbox", route: "/chatAdmin" },
           { icon: "people-outline", label: "Pacientes", route: "/patients" },
           { icon: "person-outline", label: "Perfil", route: "/profile" },
         ]
