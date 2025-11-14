@@ -251,17 +251,6 @@ const PacienteView = () => {
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* BUSCADOR */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search-outline" size={20} color="#999" />
-        <TextInput
-          placeholder="Buscar doctores, especialidades..."
-          style={styles.searchInput}
-          placeholderTextColor="#999"
-        />
-        <Ionicons name="filter-outline" size={20} color="#999" />
-      </View>
-
       {/* CALENDARIO */}
       <Text style={styles.sectionTitle}>Mi Calendario</Text>
       <View style={styles.calendarWrapper}>
