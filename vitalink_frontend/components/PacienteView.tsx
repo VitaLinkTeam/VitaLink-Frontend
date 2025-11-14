@@ -356,26 +356,6 @@ const PacienteView = () => {
         ))}
       </View>
 
-      {/* RECOMENDACIÓN */}
-      <Text style={styles.sectionTitle}>Recomendación del Día</Text>
-      <View style={styles.recommendationCard}>
-        <Image
-          source={require("../assets/images/dentist_placeholder.png")}
-          style={styles.recommendationImage}
-        />
-        <View style={styles.recommendationContent}>
-          <Text style={styles.doctorName}>Dra. Rafaela Sánchez</Text>
-          <Text style={styles.recommendationText}>Tel: 8845-9860</Text>
-          <Text style={styles.recommendationText}>Odontología General</Text>
-          <Text style={styles.recommendationDescription}>
-            Especialista en salud dental con más de 10 años de experiencia. Agenda tu cita hoy.
-          </Text>
-          <TouchableOpacity style={styles.moreButton}>
-            <Text style={styles.moreLink}>Ver perfil</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
       {/* DEPENDIENTES */}
       <Text style={styles.sectionTitle}>Familia</Text>
       <TouchableOpacity
