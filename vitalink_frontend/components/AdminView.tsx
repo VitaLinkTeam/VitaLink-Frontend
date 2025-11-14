@@ -16,16 +16,6 @@ const AdminView = () => {
 
   return (
     <ScrollView style={styles.container}>
-      {/* Buscador */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          placeholder="Buscar"
-          style={styles.searchInput}
-          placeholderTextColor="#999"
-        />
-        <Ionicons name="filter-outline" size={20} color="#999" />
-      </View>
-
       {/* Calendario */}
       <Text style={styles.sectionTitle}>Calendario</Text>
       <Calendar

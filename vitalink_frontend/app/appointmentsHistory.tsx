@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,30 +7,17 @@ import {
   FlatList,
   TouchableOpacity,
   Modal,
-  Pressable,
-  SafeAreaView,
+  Pressable
 } from "react-native";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
+import axios from "axios";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-// Función para obtener nombre según rol
-const getNombrePorRol = (rol: number) => {
-  switch (rol) {
-    case 1:
-      return "Dra. Rafaela Amador";
-    case 2:
-      return "Administrador J";
-    case 3:
-      return "Fernando Lizano";
-    case 4:
-      return "Asistente S";
-    default:
-      return "Usuario";
-  }
-};
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 
-// 🔹 Datos quemados con solo "observaciones" como lista
+// Datos quemados (por ahora)
 const historialCitas = [
   {
     id: 1,
@@ -76,9 +63,46 @@ const historialCitas = [
 
 const HistorialCitasScreen = () => {
   const { user } = useAuth();
-  const rol = user?.rol ?? 0;
-  const nombre = getNombrePorRol(rol);
 
+  // === ESTADO NOMBRE REAL ===
+  const [nombreReal, setNombreReal] = useState<string>("Cargando...");
+  const [loadingName, setLoadingName] = useState(true);
+
+  // === ROL ===
+  const roleName = user?.roleName;
+  const isPaciente = roleName === "Paciente";
+
+  // === CARGAR NOMBRE REAL ===
+  useEffect(() => {
+    const fetchNombre = async () => {
+      if (!user?.uid) {
+        setNombreReal("Usuario");
+        setLoadingName(false);
+        return;
+      }
+
+      try {
+        const { getAuth } = await import("firebase/auth");
+        const token = await getAuth().currentUser?.getIdToken();
+        if (!token) throw new Error("No token");
+
+        const response = await axios.get(`${BASE_URL}/api/auth/getname`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setNombreReal(response.data.nombre || "Paciente");
+      } catch (error) {
+        console.warn("Error al obtener nombre:", error);
+        setNombreReal(user?.nombre || "Usuario");
+      } finally {
+        setLoadingName(false);
+      }
+    };
+
+    fetchNombre();
+  }, [user?.uid]);
+
+  // === MODAL ===
   const [modalVisible, setModalVisible] = useState(false);
   const [citaSeleccionada, setCitaSeleccionada] = useState<any>(null);
 
@@ -95,94 +119,103 @@ const HistorialCitasScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <Header nombre={nombre} />
+    <SafeAreaView style={styles.safeArea}>
+      <Header nombre={loadingName ? "Cargando..." : nombreReal} />
 
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.mainCard}>
-          <Text style={styles.title}>Historial de Citas</Text>
-          <Text style={styles.subtitle}>
-            Aquí puedes consultar tus citas anteriores y su estado.
-          </Text>
-        </View>
+      {/* CONTENEDOR FLEXIBLE */}
+      <View style={styles.contentContainer}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.mainCard}>
+            <Text style={styles.title}>Historial de Citas</Text>
+            <Text style={styles.subtitle}>
+              Aquí puedes consultar tus citas anteriores y su estado.
+            </Text>
+          </View>
 
-        <View style={styles.appointmentsCard}>
-          <Text style={styles.sectionTitle}>Citas Registradas</Text>
+          <View style={styles.appointmentsCard}>
+            <Text style={styles.sectionTitle}>Citas Registradas</Text>
 
-          <FlatList
-            data={historialCitas}
-            keyExtractor={(item) => item.id.toString()}
-            scrollEnabled={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.appointmentsList}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => abrirModal(item)}
-                disabled={item.status !== "Completada" || !item.observaciones}
-              >
-                <View
-                  style={[
-                    styles.appointmentCard,
-                    item.status === "Cancelada" && styles.canceledAppointment,
-                  ]}
+            <FlatList
+              data={historialCitas}
+              keyExtractor={(item) => item.id.toString()}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => abrirModal(item)}
+                  disabled={item.status !== "Completada" || !item.observaciones}
                 >
-                  <View style={styles.appointmentInfo}>
-                    <Text
-                      style={[
-                        styles.appointmentSpecialty,
-                        item.status === "Cancelada" && styles.canceledText,
-                      ]}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.appointmentDoctor,
-                        item.status === "Cancelada" && styles.canceledText,
-                      ]}
-                    >
-                      {item.doctor}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.appointmentClinic,
-                        item.status === "Cancelada" && styles.canceledText,
-                      ]}
-                    >
-                      {item.clinic}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.appointmentDate,
-                        item.status === "Cancelada" && styles.canceledText,
-                      ]}
-                    >
-                      📅 {item.date}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.appointmentStatus,
-                        item.status === "Completada"
-                          ? styles.completedStatus
-                          : styles.canceledStatus,
-                      ]}
-                    >
-                      {item.status === "Completada" ? "✅ Completada" : "❌ Cancelada"}
-                    </Text>
-                    {item.status === "Completada" && item.observaciones && (
-                      <Text style={styles.verNotas}>👆 Toca para ver observaciones del médico</Text>
-                    )}
+                  <View
+                    style={[
+                      styles.appointmentCard,
+                      item.status === "Cancelada" && styles.canceledAppointment,
+                    ]}
+                  >
+                    <View style={styles.appointmentInfo}>
+                      <Text
+                        style={[
+                          styles.appointmentSpecialty,
+                          item.status === "Cancelada" && styles.canceledText,
+                        ]}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.appointmentDoctor,
+                          item.status === "Cancelada" && styles.canceledText,
+                        ]}
+                      >
+                        {item.doctor}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.appointmentClinic,
+                          item.status === "Cancelada" && styles.canceledText,
+                        ]}
+                      >
+                        {item.clinic}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.appointmentDate,
+                          item.status === "Cancelada" && styles.canceledText,
+                        ]}
+                      >
+                        {item.date}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.appointmentStatus,
+                          item.status === "Completada"
+                            ? styles.completedStatus
+                            : styles.canceledStatus,
+                        ]}
+                      >
+                        {item.status === "Completada" ? "Completada" : "Cancelada"}
+                      </Text>
+                      {item.status === "Completada" && item.observaciones && (
+                        <Text style={styles.verNotas}>Toca para ver observaciones</Text>
+                      )}
+                    </View>
                   </View>
-                </View>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </ScrollView>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+
+          {/* ESPACIO FINAL PARA QUE NO SE TAPE */}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </View>
 
       <Footer />
 
-      {/* 🔹 MODAL SIMPLIFICADO: SOLO OBSERVACIONES */}
+      {/* MODAL DE OBSERVACIONES */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -194,7 +227,7 @@ const HistorialCitasScreen = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Observaciones del Médico</Text>
               <Pressable onPress={cerrarModal}>
-                <Text style={styles.cerrarBtn}>✕</Text>
+                <Text style={styles.cerrarBtn}>×</Text>
               </Pressable>
             </View>
 
@@ -204,7 +237,7 @@ const HistorialCitasScreen = () => {
                   {citaSeleccionada.doctor} • {citaSeleccionada.title}
                 </Text>
                 <Text style={styles.fechaModal}>
-                  📅 {citaSeleccionada.date}
+                  {citaSeleccionada.date}
                 </Text>
 
                 <View style={styles.seccion}>
@@ -220,23 +253,26 @@ const HistorialCitasScreen = () => {
           </SafeAreaView>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
-// 🔹 ESTILOS (mismos de antes + pequeños ajustes)
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#fff",
   },
-  scrollContainer: {
-    paddingBottom: 20,
-    flexGrow: 1,
+  contentContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
   },
   mainCard: {
     backgroundColor: "#fff",
-    margin: 16,
     marginBottom: 12,
     padding: 24,
     borderRadius: 20,
@@ -253,17 +289,14 @@ const styles = StyleSheet.create({
     color: "#007AFF",
     marginBottom: 8,
     textAlign: "center",
-    fontFamily: "Inter",
   },
   subtitle: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
-    fontFamily: "Inter",
   },
   appointmentsCard: {
     backgroundColor: "#fff",
-    marginHorizontal: 16,
     marginBottom: 12,
     padding: 20,
     borderRadius: 20,
@@ -278,11 +311,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#007AFF",
     marginBottom: 16,
-    fontFamily: "Inter",
     textAlign: "center",
-  },
-  appointmentsList: {
-    paddingBottom: 12,
   },
   appointmentCard: {
     backgroundColor: "#f8f9fa",
@@ -309,25 +338,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#007AFF",
     marginBottom: 4,
-    fontFamily: "Inter",
   },
   appointmentDoctor: {
     fontSize: 15,
     color: "#333",
     marginBottom: 2,
-    fontFamily: "Inter",
   },
   appointmentClinic: {
     fontSize: 14,
     color: "#666",
     marginBottom: 4,
-    fontFamily: "Inter",
   },
   appointmentDate: {
     fontSize: 14,
     color: "#007AFF",
     fontWeight: "600",
-    fontFamily: "Inter",
   },
   appointmentStatus: {
     fontSize: 14,
@@ -351,7 +376,7 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
-  // Modal estilos
+  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

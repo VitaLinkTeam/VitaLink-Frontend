@@ -1,3 +1,4 @@
+// LoginScreen.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -16,25 +17,20 @@ const LoginScreen = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const { login, loading: authLoading } = useAuth();
+  const { login, loading } = useAuth();
 
   const handleLogin = async () => {
-    try {
-      if (!email || !password) {
-        Alert.alert("Error", "Por favor ingresa un correo electrónico y una contraseña.");
-        return;
-      }
+    if (!email || !password) {
+      Alert.alert("Error", "Por favor ingresa un correo electrónico y una contraseña.");
+      return;
+    }
 
+    try {
       await login(email, password);
-      router.replace("/HomeScreen");
-    } catch (error) {
+      // NO redirigir aquí → AuthContext decide
+    } catch (error: any) {
       Alert.alert("Error", "Credenciales inválidas. Inténtalo de nuevo.");
     }
-  };
-
-  const handleSocialLogin = (provider: string) => {
-    console.log(`Inicio de sesión con ${provider}`);
   };
 
   return (
@@ -67,25 +63,25 @@ const LoginScreen = () => {
             />
           </View>
 
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-            <Text style={styles.buttonText}>Iniciar Sesión</Text>
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>
+              {loading ? "Cargando..." : "Iniciar Sesión"}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.registerButton} onPress={() => router.push("/register")}>
-            <Text style={[styles.buttonText, styles.registerButtonText]}>¿No tienes una cuenta? Regístrate</Text>
+          {/* BOTÓN DE REGISTRO CENTRADO Y AJUSTADO */}
+          <TouchableOpacity
+            style={styles.registerButton}
+            onPress={() => router.push("/register")}
+          >
+            <Text style={styles.registerButtonText}>
+              ¿No tienes una cuenta? Regístrate
+            </Text>
           </TouchableOpacity>
-
-          <View style={styles.socialContainer}>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={() => handleSocialLogin("Google")}
-            >
-              <Image
-                style={styles.socialIcon}
-                source={require("../assets/images/Google_Logo.png")}
-              />
-            </TouchableOpacity>
-          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -123,7 +119,6 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   titleText: {
-    fontFamily: 'System',
     fontSize: 24,
     color: '#333',
     marginBottom: 20,
@@ -140,7 +135,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     marginBottom: 15,
-    fontFamily: 'System',
     fontSize: 16,
     color: '#333',
     paddingHorizontal: 15,
@@ -158,7 +152,7 @@ const styles = StyleSheet.create({
   },
   registerButton: {
     width: '90%',
-    height: 60, // Aumentado para que quepa el texto completo
+    height: 50, // ← MISMO ALTO QUE INPUTS
     borderWidth: 1,
     borderColor: '#007AFF',
     borderRadius: 10,
@@ -168,33 +162,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   buttonText: {
-    fontFamily: 'System',
     fontSize: 18,
     color: '#FFFFFF',
-    textAlign: 'center',
     fontWeight: '500',
   },
   registerButtonText: {
     color: '#007AFF',
-    fontSize: 16, // Ajustado para que quepa
-  },
-  socialContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    width: 150,
-    marginTop: 20,
-  },
-  socialButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  socialIcon: {
-    width: 20,
-    height: 20,
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });
 

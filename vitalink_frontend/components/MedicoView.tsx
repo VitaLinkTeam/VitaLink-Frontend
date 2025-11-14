@@ -211,6 +211,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#000",
   },
+  title: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#007AFF",
+  },
+  profileContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 10,
+  },
+  name: { fontSize: 18, fontWeight: "bold", color: "#000" },
+  subtitle: { fontSize: 14, color: "#666" },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",

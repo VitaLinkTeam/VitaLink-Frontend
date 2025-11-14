@@ -1,3 +1,4 @@
+// context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import {
   getAuth,
@@ -8,7 +9,7 @@ import {
   createUserWithEmailAndPassword,
 } from "firebase/auth";
 import { Usuario } from "@/models/Usuario";
-import { Alert, Platform } from "react-native";
+import { Alert } from "react-native";
 import { auth } from "@/services/firebaseAuth";
 import axios from "axios";
 import { useRouter } from "expo-router";
@@ -18,7 +19,15 @@ const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
 type AuthContextType = {
   user: Usuario | null;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, roleName: string, clinicaId: number | null, fotoURL: string, numeroTelefonico: string) => Promise<void>;
+  signup: (
+    email: string,
+    password: string,
+    roleName: string,
+    clinicaId: number | null,
+    fotoURL: string,
+    numeroTelefonico: string,
+    usuarioNombre: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
   loading: boolean;
 };
@@ -28,154 +37,151 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<Usuario | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false); // Evita duplicados
+  const [isFetching, setIsFetching] = useState(false);
   const router = useRouter();
 
-  // === FUNCIÓN PARA OBTENER PERFIL DEL BACKEND ===
-  const fetchUserProfile = async (firebaseUser: FirebaseUser) => {
-    if (isFetching) return; // Evita calls duplicados
+  const fetchUserProfile = async (firebaseUser: FirebaseUser, retries = 5, delay = 1000) => {
+    if (isFetching) return;
     setIsFetching(true);
-    try {
-      const token = await firebaseUser.getIdToken();
-      console.log("🔍 Fetching profile from backend with token:", token.substring(0, 20) + "...");
-      const response = await axios.post(
-        `${BASE_URL}/api/auth/session`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      const data = response.data;
-      console.log("✅ Backend response:", data);
-      const userData: Usuario = {
-        uid: data.uid,
-        email: data.email || firebaseUser.email || "",
-        fotoURL: data.picture || undefined,
-        numeroTelefonico: data.numeroTelefonico || undefined,
-        emailVerificado: data.emailVerificado ?? false,
-        roleName: data.roleName || undefined,
-        clinicaId: data.clinicaId || null,
-        existsInDb: data.existsInDb === true,
-      };
-      setUser(userData);
-      console.log("🆕 User updated:", userData);
-      if (!data.existsInDb) {
-        console.warn("⚠️ No registrado. Redirigiendo a /register...");
-        router.replace("/register");
-        return;
-      }
-      if (!data.roleName) {
-        return;
-      }
-      
-      router.replace("/HomeScreen");
-      
-    } catch (error: any) {
-      console.error("❌ Error fetching profile FULL DETAILS:");
-      console.error("Error message:", error.message);
-      console.error("Error code:", error.code);
-      console.error("Error config:", error.config);
-      console.error("Error response:", error.response);
-      console.error("Error stack:", error.stack);
-      if (error.response) {
-        if (error.response.status === 401 || error.response.status === 403) {
-          await signOut(auth);
-          setUser(null);
-          Alert.alert("Sesión inválida", "Inicia sesión nuevamente.");
-        } else if (error.response.data?.message?.includes("no está registrada")) {
-          setUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || "",
-            existsInDb: false,
-          });
-          router.replace("/register");
+
+    for (let i = 0; i < retries; i++) {
+      try {
+        const token = await firebaseUser.getIdToken();
+        const response = await axios.post(
+          `${BASE_URL}/api/auth/session`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        const data = response.data;
+
+        if (data.existsInDb) {
+          const userData: Usuario = {
+            uid: data.uid,
+            email: data.email || firebaseUser.email || "",
+            fotoURL: data.picture || undefined,
+            numeroTelefonico: data.numeroTelefonico || undefined,
+            emailVerificado: data.emailVerificado ?? false,
+            roleName: data.roleName || undefined,
+            clinicaId: data.clinicaId || null,
+            existsInDb: true,
+          };
+          setUser(userData);
+          router.replace("/HomeScreen"); // REDIRIGE AQUÍ
+          setIsFetching(false);
+          setLoading(false);
+          return;
         } else {
-          Alert.alert("Error del servidor", `Código: ${error.response.status}. Mensaje: ${error.response.data?.message || "Desconocido"}`);
+          // Si no existe en DB → redirige a /register
+          router.replace("/register");
+          setIsFetching(false);
+          setLoading(false);
+          return;
         }
-      } else if (error.request) {
-        Alert.alert("Error de red", "No se pudo conectar al backend. Intenta de nuevo.");
-      } else {
-        Alert.alert("Error", "No se pudo cargar el perfil. Intenta de nuevo.");
+      } catch (error: any) {
+        if (error.response?.status === 428 && i < retries - 1) {
+          console.log(`Perfil no listo, reintentando... (${i + 1}/${retries})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Si es 428 y no hay más reintentos → no registrado
+        if (error.response?.status === 428) {
+          router.replace("/register");
+          setIsFetching(false);
+          setLoading(false);
+          return;
+        }
+
+        console.error("Error en fetchUserProfile:", error);
+        Alert.alert("Error", "No se pudo conectar al servidor.");
+        setIsFetching(false);
+        setLoading(false);
+        return;
       }
-    } finally {
-      setLoading(false);
-      setIsFetching(false);
     }
+
+    // Si agotó reintentos → asumir no registrado
+    router.replace("/register");
+    setIsFetching(false);
+    setLoading(false);
   };
 
-  // === ESCUCHAR CAMBIOS DE AUTENTICACIÓN ===
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        console.log("🔄 Firebase user detected:", firebaseUser.email);
+        console.log("Firebase user detected:", firebaseUser.email);
         await fetchUserProfile(firebaseUser);
       } else {
         setUser(null);
         setLoading(false);
+        router.replace("/login");
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
-  // === LOGIN ===
   const login = async (email: string, password: string) => {
     try {
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("✅ Firebase login OK:", credential.user.email);
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error: any) {
-      //solo para dev: console.error("❌ Login error:", error.message);
       throw error;
     }
   };
 
-  // === SIGNUP ===
-  const signup = async (email: string, password: string, roleName: string, clinicaId: number | null, fotoURL: string, numeroTelefonico: string) => {
+  const signup = async (
+    email: string,
+    password: string,
+    roleName: string,
+    clinicaId: number | null,
+    fotoURL: string,
+    numeroTelefonico: string,
+    usuarioNombre: string
+  ) => {
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, password);
       const token = await credential.user.getIdToken();
-      console.log("✅ Firebase signup OK:", credential.user.email);
 
       const body = {
         roleName,
         clinicaId,
         fotoURL,
         numeroTelefonico,
+        usuarioNombre,
       };
 
-      const response = await axios.post(
-        `${BASE_URL}/api/auth/signup`,
-        body,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      console.log("✅ Backend signup OK:", response.data);
+      // LOG TEMPORAL PARA DEBUG
+      console.log("🔄 ENVIANDO A BACKEND:", { body, url: `${BASE_URL}/api/auth/signup`, token: token.substring(0, 20) + "..." });
 
-      await fetchUserProfile(credential.user);
+      await axios.post(`${BASE_URL}/api/auth/signup`, body, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      // NO REDIRIGIR AQUÍ
+      // fetchUserProfile lo hará
     } catch (error: any) {
-      console.error("❌ Signup error:", error.response?.data || error.message);
+      console.error("Signup error:", error.response?.data || error.message);
       throw error;
     }
   };
 
-  // === LOGOUT ===
   const logout = async () => {
     try {
       const token = await auth.currentUser?.getIdToken();
       if (token) {
-        await axios.post(`${BASE_URL}/api/auth/logout`, {}, { headers: { Authorization: `Bearer ${token}` } });
+        await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
       }
     } catch (error) {
-      console.warn("⚠️ Logout backend error:", error);
+      console.warn("Logout backend error:", error);
     } finally {
       await signOut(auth);
       setUser(null);
+      router.replace("/login");
     }
   };
 
