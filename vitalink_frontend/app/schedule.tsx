@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// app/schedule.tsx
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,346 +7,339 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // Instalar con: expo install @react-native-async-storage/async-storage
 import { useAuth } from "@/context/AuthContext";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import axios from "axios";
+import { getAuth } from "firebase/auth";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+const BASE_URL = "https://vitalink-backend-m2mm.onrender.com";
+
+const DAYS = [
+  { label: "Domingo", value: 0 },
+  { label: "Lunes", value: 1 },
+  { label: "Martes", value: 2 },
+  { label: "Miércoles", value: 3 },
+  { label: "Jueves", value: 4 },
+  { label: "Viernes", value: 5 },
+  { label: "Sábado", value: 6 },
+];
+
+const HOURS = [];
+for (let h = 6; h <= 22; h++) {
+  HOURS.push(`${h.toString().padStart(2, "0")}:00`);
+  if (h < 22) HOURS.push(`${h.toString().padStart(2, "0")}:30`);
+}
 
 const ScheduleScreen = () => {
   const { user } = useAuth();
-  const rol = user?.rol;
 
-  const getNombrePorRol = () => {
-    switch (rol) {
-      case 1:
-        return "Dra. Rafaela Amador";
-      case 2:
-        return "Administrador J";
-      case 4:
-        return "Asistente S";
-      case 3:
-      default:
-        return "Fernando Lizano";
-    }
+  // ESTABILIZAR isAdmin
+  const isAdmin = useMemo(() => {
+    return user?.roleName === "Administrador";
+  }, [user?.roleName]);
+
+  const [clinicaId, setClinicaId] = useState<number | null>(null);
+  const [loadingClinica, setLoadingClinica] = useState(true);
+  const [schedules, setSchedules] = useState<Record<number, { start: string; end: string }>>({});
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const getAuthHeaders = async () => {
+    const token = await getAuth().currentUser?.getIdToken();
+    if (!token) throw new Error("No token");
+    return { Authorization: `Bearer ${token}` };
   };
 
-  const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-
-  const hours = [];
-  for (let h = 6; h <= 22; h++) {
-    hours.push(`${h < 10 ? "0" + h : h}:00`);
-    if (h < 22) hours.push(`${h < 10 ? "0" + h : h}:30`);
-  }
-
-  const [selectedDays, setSelectedDays] = useState([]);
-  const [schedules, setSchedules] = useState({});
-
+  // CARGAR CLÍNICA
   useEffect(() => {
-    const loadSchedule = async () => {
+    if (!isAdmin || !user?.uid) {
+      setLoadingClinica(false);
+      return;
+    }
+
+    let mounted = true;
+
+    const fetchClinica = async () => {
       try {
-        const savedSchedule = await AsyncStorage.getItem("doctorSchedule");
-        if (savedSchedule) {
-          const parsedSchedule = JSON.parse(savedSchedule);
-          setSelectedDays(parsedSchedule.selectedDays || []);
-          setSchedules(parsedSchedule.schedules || {});
+        const headers = await getAuthHeaders();
+        const res = await axios.get(`${BASE_URL}/api/usuario/clinicas`, { headers });
+        const clinicas = Array.isArray(res.data) ? res.data : [];
+        if (clinicas.length === 0) {
+          if (mounted) Alert.alert("Error", "No tienes clínicas asociadas.");
+          return;
         }
+        if (mounted) setClinicaId(clinicas[0].id);
       } catch (error) {
-        console.log("Error al cargar horarios:", error);
+        console.error("Error cargando clínica:", error);
+        if (mounted) Alert.alert("Error", "No se pudo cargar la clínica.");
+      } finally {
+        if (mounted) setLoadingClinica(false);
       }
     };
-    loadSchedule();
-  }, []);
 
-  // Guardar horarios a lo largo de la app utilizando el asyncStorage. Esto permite que haya persistencia incluso a traves de las pantallas;
-  // no olvidar usarlo con npm install @react-native-async-storage/async-storage; y si les falla usar primero npm install --save-dev @types/react@^19.1.0
-  const saveScheduleToStorage = async (newSelectedDays, newSchedules) => {
-    try {
-      const scheduleData = {
-        selectedDays: newSelectedDays,
-        schedules: newSchedules,
-      };
-      await AsyncStorage.setItem("doctorSchedule", JSON.stringify(scheduleData));
-    } catch (error) {
-      console.log("Error al guardar horarios:", error);
-    }
-  };
+    fetchClinica();
 
-  const toggleDay = (day) => {
-    if (selectedDays.includes(day)) {
-      setSelectedDays(selectedDays.filter((d) => d !== day));
-      const newSchedules = { ...schedules };
-      delete newSchedules[day];
-      setSchedules(newSchedules);
-      saveScheduleToStorage(
-        selectedDays.filter((d) => d !== day),
-        newSchedules
-      );
+    return () => { mounted = false; }; // Cleanup
+  }, [isAdmin, user?.uid]);
+
+  // CARGAR HORARIOS
+  useEffect(() => {
+    if (!clinicaId || !isAdmin) return;
+
+    let mounted = true;
+
+    const fetchHorarios = async () => {
+      try {
+        const headers = await getAuthHeaders();
+        const res = await axios.get(`${BASE_URL}/api/clinicas/${clinicaId}/horarios`, { headers });
+        const horarios = Array.isArray(res.data) ? res.data : [];
+
+        const loadedSchedules: Record<number, { start: string; end: string }> = {};
+        const loadedDays: number[] = [];
+
+        horarios.forEach((h: any) => {
+          const dia = h.diaSemana;
+          if (dia >= 0 && dia <= 6 && mounted) {
+            loadedSchedules[dia] = { start: h.horaInicio, end: h.horaFin };
+            loadedDays.push(dia);
+          }
+        });
+
+        if (mounted) {
+          setSchedules(loadedSchedules);
+          setSelectedDays(loadedDays);
+        }
+      } catch (error) {
+        console.warn("No hay horarios o error:", error);
+      }
+    };
+
+    fetchHorarios();
+
+    return () => { mounted = false; };
+  }, [clinicaId, isAdmin]);
+
+  // === GUARDAR / ELIMINAR ===
+  const saveHorario = async (dia: number, start: string, end: string) => {
+    if (!clinicaId) return;
+    const headers = await getAuthHeaders();
+    const body = { diaSemana: dia, horaInicio: start, horaFin: end };
+    const exists = selectedDays.includes(dia) && schedules[dia];
+
+    if (exists) {
+      await axios.put(`${BASE_URL}/api/clinicas/${clinicaId}/horarios/${dia}`, body, { headers });
     } else {
-      const newSelectedDays = [...selectedDays, day];
-      setSelectedDays(newSelectedDays);
-      setSchedules({ ...schedules, [day]: { start: "06:00", end: "22:00" } });
-      saveScheduleToStorage(newSelectedDays, {
-        ...schedules,
-        [day]: { start: "06:00", end: "22:00" },
-      });
+      await axios.post(`${BASE_URL}/api/clinicas/${clinicaId}/horarios`, body, { headers });
     }
   };
 
-  const changeSchedule = (day, field, value) => {
+  const deleteHorario = async (dia: number) => {
+    if (!clinicaId) return;
+    const headers = await getAuthHeaders();
+    await axios.delete(`${BASE_URL}/api/clinicas/${clinicaId}/horarios/${dia}`, { headers });
+  };
+
+  const toggleDay = async (dia: number) => {
+    if (selectedDays.includes(dia)) {
+      setLoading(true);
+      try {
+        await deleteHorario(dia);
+        setSelectedDays(prev => prev.filter(d => d !== dia));
+        setSchedules(prev => {
+          const copy = { ...prev };
+          delete copy[dia];
+          return copy;
+        });
+        const dayLabel = DAYS.find(d => d.value === dia)?.label || "Día";
+        Alert.alert("Eliminado", `Horario del ${dayLabel} eliminado.`);
+      } catch (error: any) {
+        Alert.alert("Error", error.message);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      const defaultStart = "08:00";
+      const defaultEnd = "17:00";
+      setLoading(true);
+      try {
+        await saveHorario(dia, defaultStart, defaultEnd);
+        setSelectedDays(prev => [...prev, dia]);
+        setSchedules(prev => ({
+          ...prev,
+          [dia]: { start: defaultStart, end: defaultEnd },
+        }));
+        const dayLabel = DAYS.find(d => d.value === dia)?.label || "Día";
+        Alert.alert("Agregado", `Horario del ${dayLabel} agregado.`);
+      } catch (error: any) {
+        Alert.alert("Error", error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const changeSchedule = async (dia: number, field: "start" | "end", value: string) => {
     const newSchedules = {
       ...schedules,
-      [day]: { ...schedules[day], [field]: value },
+      [dia]: { ...schedules[dia], [field]: value },
     };
     setSchedules(newSchedules);
-    saveScheduleToStorage(selectedDays, newSchedules);
+
+    setLoading(true);
+    try {
+      await saveHorario(dia, newSchedules[dia].start, newSchedules[dia].end);
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+      setSchedules(schedules);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const saveSchedule = () => {
-    Alert.alert(
-      "Confirmar",
-      "¿Estás seguro de guardar los horarios?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Guardar",
-          style: "default",
-          onPress: () => {
-            saveScheduleToStorage(selectedDays, schedules);
-            Alert.alert("Éxito", "Horarios guardados correctamente.");
-          },
-        },
-      ]
-    );
+  const saveAll = () => {
+    Alert.alert("Éxito", "Todos los horarios están sincronizados con el servidor.");
   };
 
-  if (rol !== 1 && rol !== 2) {
+  // === RENDERS CONDICIONALES ===
+  if (!isAdmin) {
     return (
-      <View style={styles.deniedContainer}>
-        <Text style={styles.deniedText}>Acceso denegado. Solo para médicos y administradores.</Text>
-      </View>
+      <SafeAreaView style={styles.deniedContainer}>
+        <Text style={styles.deniedText}>Acceso denegado. Solo para Administradores.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (loadingClinica) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Cargando clínica...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!clinicaId) {
+    return (
+      <SafeAreaView style={styles.deniedContainer}>
+        <Text style={styles.deniedText}>No tienes una clínica asociada.</Text>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.mainContainer}>
-      <Header nombre={getNombrePorRol()} />
-
+    <SafeAreaView style={styles.mainContainer}>
+      <Header nombre="Administrador" />
       <ScrollView style={styles.scrollContainer}>
-        <Text style={styles.screenTitle}>Configurar Horario</Text>
+        <Text style={styles.screenTitle}>Horarios de la Clínica</Text>
 
-        {/* Seleccion de los dias */}
-        <Text style={styles.sectionLabel}>Días de trabajo</Text>
+        <Text style={styles.sectionLabel}>Días de atención</Text>
         <View style={styles.daysGrid}>
-          {days.map((day) => (
+          {DAYS.map(({ label, value }) => (
             <TouchableOpacity
-              key={day}
-              style={[
-                styles.dayButton,
-                selectedDays.includes(day) && styles.dayButtonSelected,
-              ]}
-              onPress={() => toggleDay(day)}
+              key={value}
+              style={[styles.dayButton, selectedDays.includes(value) && styles.dayButtonSelected]}
+              onPress={() => toggleDay(value)}
+              disabled={loading}
               activeOpacity={0.7}
             >
               <Text
-                style={[
-                  styles.dayButtonText,
-                  selectedDays.includes(day) && styles.dayButtonTextSelected,
-                ]}
+                style={{
+                  ...styles.dayButtonText,
+                  ...(selectedDays.includes(value) && styles.dayButtonTextSelected),
+                }}
               >
-                {day}
+                {label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Horario por cada dia (es un select/dropdown) */}
         {selectedDays.length > 0 && (
           <>
-            <Text style={styles.sectionLabel}>Horarios</Text>
-            {selectedDays.map((day) => (
-              <View key={day} style={styles.scheduleCard}>
-                <Text style={styles.dayHeader}>{day}</Text>
-                <View style={styles.timeSelectors}>
-                  <View style={styles.timeSelector}>
-                    <Text style={styles.timeLabel}>Inicio</Text>
-                    <Picker
-                      selectedValue={schedules[day]?.start || "06:00"}
-                      onValueChange={(value) => changeSchedule(day, "start", value)}
-                      style={styles.timePicker}
-                      dropdownIconColor="#007AFF"
-                    >
-                      {hours.map((hour) => (
-                        <Picker.Item
-                          key={`${day}-start-${hour}`}
-                          label={hour}
-                          value={hour}
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                  <View style={styles.timeSelector}>
-                    <Text style={styles.timeLabel}>Fin</Text>
-                    <Picker
-                      selectedValue={schedules[day]?.end || "22:00"}
-                      onValueChange={(value) => changeSchedule(day, "end", value)}
-                      style={styles.timePicker}
-                      dropdownIconColor="#007AFF"
-                    >
-                      {hours.map((hour) => (
-                        <Picker.Item
-                          key={`${day}-end-${hour}`}
-                          label={hour}
-                          value={hour}
-                        />
-                      ))}
-                    </Picker>
+            <Text style={styles.sectionLabel}>Horarios por día</Text>
+            {[...selectedDays].sort((a, b) => a - b).map((dia) => {
+              const dayInfo = DAYS.find(d => d.value === dia);
+              if (!dayInfo) return null;
+
+              return (
+                <View key={dia} style={styles.scheduleCard}>
+                  <Text style={styles.dayHeader}>{dayInfo.label}</Text>
+                  <View style={styles.timeSelectors}>
+                    <View style={styles.timeSelector}>
+                      <Text style={styles.timeLabel}>Inicio</Text>
+                      <Picker
+                        selectedValue={schedules[dia]?.start || "08:00"}
+                        onValueChange={(value) => changeSchedule(dia, "start", value)}
+                        style={styles.timePicker}
+                        enabled={!loading}
+                      >
+                        {HOURS.map((h) => (
+                          <Picker.Item key={`${dia}-start-${h}`} label={h} value={h} />
+                        ))}
+                      </Picker>
+                    </View>
+                    <View style={styles.timeSelector}>
+                      <Text style={styles.timeLabel}>Fin</Text>
+                      <Picker
+                        selectedValue={schedules[dia]?.end || "17:00"}
+                        onValueChange={(value) => changeSchedule(dia, "end", value)}
+                        style={styles.timePicker}
+                        enabled={!loading}
+                      >
+                        {HOURS.map((h) => (
+                          <Picker.Item key={`${dia}-end-${h}`} label={h} value={h} />
+                        ))}
+                      </Picker>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         )}
 
-        {/* Boton para guardar */}
         <TouchableOpacity
-          style={styles.saveButton}
-          onPress={saveSchedule}
-          activeOpacity={0.7}
+          style={[styles.saveButton, loading && styles.disabledButton]}
+          onPress={saveAll}
+          disabled={loading}
         >
-          <Text style={styles.saveButtonText}>Guardar Horario</Text>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Todo sincronizado</Text>}
         </TouchableOpacity>
       </ScrollView>
-
       <Footer />
-    </View>
+    </SafeAreaView>
   );
 };
 
+// === ESTILOS ===
 const styles = StyleSheet.create({
-  mainContainer: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  scrollContainer: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  screenTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#007AFF",
-    textAlign: "center",
-    marginBottom: 25,
-    fontFamily: "Inter",
-  },
-  sectionLabel: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 15,
-    marginTop: 25,
-  },
-  daysGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  dayButton: {
-    width: "32%",
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#f2f2f2",
-    alignItems: "center",
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  dayButtonSelected: {
-    backgroundColor: "#007AFF",
-  },
-  dayButtonText: {
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "500",
-    fontFamily: "Inter",
-  },
-  dayButtonTextSelected: {
-    color: "#fff",
-  },
-  scheduleCard: {
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 20,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  dayHeader: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#007AFF",
-    marginBottom: 10,
-    fontFamily: "Inter",
-  },
-  timeSelectors: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  timeSelector: {
-    width: "48%",
-  },
-  timeLabel: {
-    fontSize: 16,
-    color: "#333",
-    marginBottom: 8,
-    fontWeight: "500",
-    fontFamily: "Inter",
-  },
-  timePicker: {
-    backgroundColor: "#f2f2f2",
-    borderRadius: 10,
-    paddingVertical: 5,
-    elevation: 1,
-  },
-  saveButton: {
-    backgroundColor: "#007AFF",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 30,
-    elevation: 4,
-    shadowColor: "#007AFF",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  saveButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    fontFamily: "Inter",
-  },
-  deniedContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  deniedText: {
-    fontSize: 18,
-    color: "#333",
-    fontWeight: "600",
-    textAlign: "center",
-  },
+  mainContainer: { flex: 1, backgroundColor: "#fff" },
+  scrollContainer: { padding: 20, paddingBottom: 60 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 12, fontSize: 16, color: "#666" },
+  screenTitle: { fontSize: 24, fontWeight: "700", color: "#007AFF", textAlign: "center", marginBottom: 25 },
+  sectionLabel: { fontSize: 18, fontWeight: "600", color: "#333", marginBottom: 15, marginTop: 25 },
+  daysGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 20 },
+  dayButton: { width: "32%", paddingVertical: 14, borderRadius: 12, backgroundColor: "#f2f2f2", alignItems: "center", marginBottom: 12, elevation: 2 },
+  dayButtonSelected: { backgroundColor: "#007AFF" },
+  dayButtonText: { fontSize: 16, color: "#333", fontWeight: "500" },
+  dayButtonTextSelected: { color: "#fff" },
+  scheduleCard: { backgroundColor: "#fff", padding: 15, borderRadius: 12, marginBottom: 20, elevation: 3, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4 },
+  dayHeader: { fontSize: 20, fontWeight: "600", color: "#007AFF", marginBottom: 10 },
+  timeSelectors: { flexDirection: "row", justifyContent: "space-between" },
+  timeSelector: { width: "48%" },
+  timeLabel: { fontSize: 16, color: "#333", marginBottom: 8, fontWeight: "500" },
+  timePicker: { backgroundColor: "#f8f9fa", borderRadius: 10, paddingVertical: 5 },
+  saveButton: { backgroundColor: "#34C759", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 30, elevation: 4 },
+  disabledButton: { backgroundColor: "#A0C4FF", opacity: 0.7 },
+  saveButtonText: { color: "#fff", fontSize: 18, fontWeight: "600" },
+  deniedContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff", padding: 20 },
+  deniedText: { fontSize: 18, color: "#333", fontWeight: "600", textAlign: "center" },
 });
 
 export default ScheduleScreen;
